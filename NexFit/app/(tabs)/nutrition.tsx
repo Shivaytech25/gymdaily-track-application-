@@ -11,10 +11,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useFocusEffect } from "expo-router";
 
 import { COLORS, SPACING, RADIUS, TYPOGRAPHY } from "../../constants/theme";
 import { API_BASE_URL } from "../../services/apiConfig";
 import { useAuth } from "../../context/AuthContext";
+import { getLocalDateString, useDayChangeDetector } from "../../utils/dateUtils";
 
 const MEALS = ["Breakfast", "Lunch", "Dinner", "Snacks"];
 const WATER_GOAL_ML = 2500;
@@ -74,8 +76,11 @@ export default function NutritionScreen() {
   const [foodCarbs, setFoodCarbs] = useState("");
   const [foodFats, setFoodFats] = useState("");
   const [showFoodForm, setShowFoodForm] = useState(false);
+  const [editingFood, setEditingFood] = useState<FoodEntry | null>(null);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = useDayChangeDetector(() => {
+    void loadNutrition();
+  });
 
   const request = useCallback(
     async (path: string, options: RequestInit = {}) => {
@@ -201,6 +206,14 @@ export default function NutritionScreen() {
     }
   }, [isInitializing, loadNutrition]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!isInitializing && isAuthenticated) {
+        void loadNutrition();
+      }
+    }, [isInitializing, isAuthenticated, loadNutrition])
+  );
+
   const calories = foods.reduce((sum, food) => sum + food.calories, 0);
   const protein = foods.reduce((sum, food) => sum + food.protein, 0);
   const carbs = foods.reduce((sum, food) => sum + food.carbs, 0);
@@ -260,6 +273,27 @@ export default function NutritionScreen() {
     }
   };
 
+  const handleStartEditFood = (food: FoodEntry) => {
+    setEditingFood(food);
+    setActiveMeal(food.meal);
+    setFoodName(food.name);
+    setFoodCalories(String(food.calories));
+    setFoodProtein(String(food.protein));
+    setFoodCarbs(String(food.carbs));
+    setFoodFats(String(food.fats));
+    setShowFoodForm(true);
+  };
+
+  const handleCancelForm = () => {
+    setEditingFood(null);
+    setFoodName("");
+    setFoodCalories("");
+    setFoodProtein("");
+    setFoodCarbs("");
+    setFoodFats("");
+    setShowFoodForm(false);
+  };
+
   async function addFood() {
     const name = foodName.trim();
     const numericCalories = Number(foodCalories);
@@ -288,27 +322,44 @@ export default function NutritionScreen() {
     setSavingFood(true);
 
     try {
-      await request(`/nutrition/meal?date=${today}`, {
-        method: "POST",
-        body: JSON.stringify({
-          name: activeMeal,
-          foods: [
-            {
+      if (editingFood && editingFood.mealId && editingFood.foodId) {
+        await request(
+          `/nutrition/meal/${editingFood.mealId}/food/${editingFood.foodId}?date=${today}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
               name,
-              quantity: 1,
-              unit: "serving",
               calories: numericCalories,
               protein: numericProtein,
               carbs: numericCarbs,
               fats: numericFats,
-              fiber: 0,
-            },
-          ],
-        }),
-      });
+            }),
+          }
+        );
+      } else {
+        await request(`/nutrition/meal?date=${today}`, {
+          method: "POST",
+          body: JSON.stringify({
+            name: activeMeal,
+            foods: [
+              {
+                name,
+                quantity: 1,
+                unit: "serving",
+                calories: numericCalories,
+                protein: numericProtein,
+                carbs: numericCarbs,
+                fats: numericFats,
+                fiber: 0,
+              },
+            ],
+          }),
+        });
+      }
 
       await loadNutrition();
 
+      setEditingFood(null);
       setFoodName("");
       setFoodCalories("");
       setFoodProtein("");
@@ -540,10 +591,20 @@ export default function NutritionScreen() {
                       <Text style={styles.foodCalories}>{food.calories}</Text>
                       <Text style={styles.mutedText}>kcal</Text>
                     </View>
+                    {Boolean(food.mealId && food.foodId) && (
+                      <TouchableOpacity
+                        onPress={() => handleStartEditFood(food)}
+                        style={{ padding: 6, marginLeft: 6 }}
+                        accessibilityLabel={`Edit ${food.name}`}
+                      >
+                        <Text style={{ color: COLORS.primary, fontSize: 16 }}>✏️</Text>
+                      </TouchableOpacity>
+                    )}
                     {Boolean(food.mealId) && (
                       <TouchableOpacity
                         onPress={() => deleteFood(food)}
-                        style={{ padding: 6, marginLeft: 8 }}
+                        style={{ padding: 6, marginLeft: 4 }}
+                        accessibilityLabel={`Delete ${food.name}`}
                       >
                         <Text style={{ color: COLORS.danger, fontSize: 16 }}>✕</Text>
                       </TouchableOpacity>
@@ -554,7 +615,7 @@ export default function NutritionScreen() {
 
               <TouchableOpacity
                 style={styles.primaryButton}
-                onPress={() => setShowFoodForm((visible) => !visible)}
+                onPress={() => (showFoodForm ? handleCancelForm() : setShowFoodForm(true))}
               >
                 <Text style={styles.primaryButtonText}>
                   {showFoodForm ? "Cancel" : "+ Add food"}
@@ -563,7 +624,9 @@ export default function NutritionScreen() {
 
               {showFoodForm && (
                 <View style={styles.form}>
-                  <Text style={styles.formTitle}>Add to {activeMeal}</Text>
+                  <Text style={styles.formTitle}>
+                    {editingFood ? `Edit in ${activeMeal}` : `Add to ${activeMeal}`}
+                  </Text>
                   <TextInput
                     style={styles.input}
                     placeholder="Food name (e.g. Paneer)"
@@ -614,7 +677,9 @@ export default function NutritionScreen() {
                     {savingFood ? (
                       <ActivityIndicator color={COLORS.background} />
                     ) : (
-                      <Text style={styles.primaryButtonText}>Save food</Text>
+                      <Text style={styles.primaryButtonText}>
+                        {editingFood ? "Update food" : "Save food"}
+                      </Text>
                     )}
                   </TouchableOpacity>
                 </View>

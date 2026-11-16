@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import User, { FitnessGoal, ExperienceLevel, DietPreference } from "../models/User";
+import { isValidPhoneNumber, normalizePhoneNumber } from "../utils/validation";
 
 interface AuthRequest extends Request {
   userId?: string;
@@ -27,6 +28,8 @@ const VALID_DIET_PREFERENCES: DietPreference[] = [
   "eggetarian",
   "other",
 ];
+
+const VALID_GENDERS = ["male", "female", "other", "prefer_not_to_say"];
 
 export async function getProfile(
   req: AuthRequest,
@@ -57,6 +60,8 @@ export async function getProfile(
         id: user._id.toString(),
         name: user.name,
         email: user.email,
+        phoneNumber: user.phoneNumber,
+        gender: user.gender,
         fitnessGoal: user.fitnessGoal,
         experienceLevel: user.experienceLevel,
         workoutDaysPerWeek: user.workoutDaysPerWeek,
@@ -106,6 +111,48 @@ export async function updateProfile(
         return;
       }
       updates.name = req.body.name.trim();
+    }
+
+    if (req.body.phoneNumber !== undefined) {
+      if (req.body.phoneNumber === null || req.body.phoneNumber === "") {
+        updates.phoneNumber = undefined;
+      } else {
+        if (typeof req.body.phoneNumber !== "string" || !isValidPhoneNumber(req.body.phoneNumber.trim())) {
+          res.status(400).json({
+            success: false,
+            message: "Please enter a valid phone number (10-digit Indian number or international format)",
+          });
+          return;
+        }
+        const normalized = normalizePhoneNumber(req.body.phoneNumber.trim());
+        // Check if phone number is taken by another user
+        const existing = await User.findOne({
+          phoneNumber: normalized,
+          _id: { $ne: req.userId },
+        }).lean();
+        if (existing) {
+          res.status(409).json({
+            success: false,
+            message: "An account with this phone number already exists",
+          });
+          return;
+        }
+        updates.phoneNumber = normalized;
+      }
+    }
+
+    if (req.body.gender !== undefined) {
+      if (req.body.gender === null || req.body.gender === "") {
+        updates.gender = "prefer_not_to_say";
+      } else if (!VALID_GENDERS.includes(req.body.gender)) {
+        res.status(400).json({
+          success: false,
+          message: `gender must be one of: ${VALID_GENDERS.join(", ")}`,
+        });
+        return;
+      } else {
+        updates.gender = req.body.gender;
+      }
     }
 
     if (req.body.fitnessGoal !== undefined) {
@@ -246,6 +293,8 @@ export async function updateProfile(
         id: updatedUser._id.toString(),
         name: updatedUser.name,
         email: updatedUser.email,
+        phoneNumber: updatedUser.phoneNumber,
+        gender: updatedUser.gender,
         fitnessGoal: updatedUser.fitnessGoal,
         experienceLevel: updatedUser.experienceLevel,
         workoutDaysPerWeek: updatedUser.workoutDaysPerWeek,

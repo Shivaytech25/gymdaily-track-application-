@@ -28,7 +28,7 @@ export async function register(
       return;
     }
 
-    const { name, email, password } = validation.data;
+    const { name, email, password, phoneNumber } = validation.data;
 
     const existingUser = await User.findOne({ email }).lean();
 
@@ -40,11 +40,23 @@ export async function register(
       return;
     }
 
+    if (phoneNumber) {
+      const existingPhone = await User.findOne({ phoneNumber }).lean();
+      if (existingPhone) {
+        res.status(409).json({
+          success: false,
+          message: 'An account with this phone number already exists.',
+        });
+        return;
+      }
+    }
+
     const passwordHash = await hashPassword(password);
 
     const user = await User.create({
       name,
       email,
+      phoneNumber,
       passwordHash,
     });
 
@@ -59,6 +71,7 @@ export async function register(
           id: user.id,
           name: user.name,
           email: user.email,
+          phoneNumber: user.phoneNumber,
           fitnessGoal: user.fitnessGoal,
           experienceLevel: user.experienceLevel,
           workoutDaysPerWeek: user.workoutDaysPerWeek,
@@ -151,6 +164,7 @@ export async function login(
           id: user.id,
           name: user.name,
           email: user.email,
+          phoneNumber: user.phoneNumber,
           fitnessGoal: user.fitnessGoal,
           experienceLevel: user.experienceLevel,
           workoutDaysPerWeek: user.workoutDaysPerWeek,

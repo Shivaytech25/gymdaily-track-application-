@@ -10,9 +10,14 @@ export interface IWorkoutSet {
 }
 
 export interface IWorkoutExercise {
+  exerciseId?: string;
   exerciseName: string;
-  machineName: string;
+  category?: string;
+  machineName?: string;
   equipmentType?: string;
+  durationSeconds?: number;
+  caloriesBurned?: number;
+  completedAt?: Date;
   sets: IWorkoutSet[];
   notes?: string;
 }
@@ -21,10 +26,13 @@ export interface IWorkoutSession extends Document {
   userId: mongoose.Types.ObjectId;
   workoutDate: Date;
   title: string;
+  status: 'in_progress' | 'completed' | 'cancelled';
   exercises: IWorkoutExercise[];
   durationMinutes: number;
   caloriesBurned?: number;
   notes?: string;
+  startedAt?: Date;
+  completedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -60,19 +68,38 @@ const WorkoutSetSchema = new Schema<IWorkoutSet>(
 
 const WorkoutExerciseSchema = new Schema<IWorkoutExercise>(
   {
+    exerciseId: {
+      type: String,
+      trim: true,
+    },
     exerciseName: {
       type: String,
       required: true,
       trim: true,
     },
+    category: {
+      type: String,
+      trim: true,
+    },
     machineName: {
       type: String,
-      required: true,
       trim: true,
+      default: "",
     },
     equipmentType: {
       type: String,
       trim: true,
+    },
+    durationSeconds: {
+      type: Number,
+      min: 0,
+    },
+    caloriesBurned: {
+      type: Number,
+      min: 0,
+    },
+    completedAt: {
+      type: Date,
     },
     sets: {
       type: [WorkoutSetSchema],
@@ -104,6 +131,12 @@ const WorkoutSessionSchema = new Schema<IWorkoutSession>(
       default: "Workout Session",
       trim: true,
     },
+    status: {
+      type: String,
+      enum: ["in_progress", "completed", "cancelled"],
+      default: "completed",
+      index: true,
+    },
     exercises: {
       type: [WorkoutExerciseSchema],
       default: [],
@@ -120,6 +153,12 @@ const WorkoutSessionSchema = new Schema<IWorkoutSession>(
     notes: {
       type: String,
       trim: true,
+    },
+    startedAt: {
+      type: Date,
+    },
+    completedAt: {
+      type: Date,
     },
   },
   {

@@ -9,6 +9,9 @@ import {
   getWorkoutSessionsByDate,
   updateWorkoutSession,
   deleteWorkoutSession,
+  startWorkoutSession,
+  completeExercise,
+  completeSession,
 } from "../controllers/workoutSessionController";
 
 const router = Router();
@@ -72,6 +75,9 @@ const authenticate = (
 };
 
 router.post("/", authenticate, createWorkoutSession);
+router.post("/start", authenticate, startWorkoutSession);
+router.post("/complete-exercise", authenticate, completeExercise);
+router.post("/complete-session", authenticate, completeSession);
 router.get("/", authenticate, getWorkoutSessions);
 router.get("/date/:date", authenticate, getWorkoutSessionsByDate);
 router.patch("/:id", authenticate, updateWorkoutSession);

@@ -126,6 +126,73 @@ export async function updateWorkoutSession(
   return result.session;
 }
 
+export interface CompleteExerciseInput {
+  workoutDate?: string;
+  sessionId?: string;
+  exerciseId?: string;
+  exerciseName: string;
+  category?: string;
+  machineName?: string;
+  equipmentType?: string;
+  sets?: WorkoutSet[];
+  reps?: number;
+  weight?: number;
+  durationSeconds?: number;
+  caloriesBurned?: number;
+  notes?: string;
+}
+
+export interface CompleteSessionInput {
+  sessionId?: string;
+  workoutDate?: string;
+  durationMinutes?: number;
+  caloriesBurned?: number;
+  notes?: string;
+}
+
+export async function startWorkoutSession(
+  token: string,
+  input: { workoutDate?: string; title?: string } = {}
+): Promise<WorkoutSession> {
+  const result = await request<{
+    success: boolean;
+    session: WorkoutSession;
+  }>("/workout-sessions/start", token, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return result.session;
+}
+
+export async function completeExercise(
+  token: string,
+  input: CompleteExerciseInput
+): Promise<{ session: WorkoutSession; exercise: WorkoutExercise }> {
+  const result = await request<{
+    success: boolean;
+    session: WorkoutSession;
+    exercise: WorkoutExercise;
+  }>("/workout-sessions/complete-exercise", token, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return { session: result.session, exercise: result.exercise };
+}
+
+export async function completeSession(
+  token: string,
+  input: CompleteSessionInput
+): Promise<WorkoutSession> {
+  const result = await request<{
+    success: boolean;
+    session: WorkoutSession;
+  }>("/workout-sessions/complete-session", token, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return result.session;
+}
+
 export async function deleteWorkoutSession(
   token: string,
   id: string

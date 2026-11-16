@@ -3,6 +3,12 @@ import { Router, Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import WorkoutPlan from "../models/WorkoutPlan";
+import {
+  completeExercise,
+  completeSession,
+  startWorkoutSession,
+} from "../controllers/workoutSessionController";
+import { getWorkoutHistory } from "../controllers/workoutHistoryController";
 
 const router = Router();
 
@@ -162,5 +168,11 @@ router.patch(
     }
   }
 );
+
+// Connected workout routes for dashboard and sessions
+router.post("/start", authenticate, startWorkoutSession);
+router.post("/complete-exercise", authenticate, completeExercise);
+router.post("/complete-session", authenticate, completeSession);
+router.get("/history", authenticate, getWorkoutHistory);
 
 export default router;

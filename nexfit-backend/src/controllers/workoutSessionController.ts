@@ -18,8 +18,6 @@ const isValidExercises = (exercises: unknown): boolean => {
       !exercise ||
       typeof exercise.exerciseName !== "string" ||
       !exercise.exerciseName.trim() ||
-      typeof exercise.machineName !== "string" ||
-      !exercise.machineName.trim() ||
       !Array.isArray(exercise.sets)
     ) {
       return false;
@@ -389,6 +387,313 @@ export const deleteWorkoutSession = async (
     res.status(500).json({
       success: false,
       message: "Failed to delete workout session",
+    });
+  }
+};
+
+function getUtcDayBounds(dateStr?: string): { start: Date; end: Date; dateObj: Date } {
+  let dateObj: Date;
+  if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    dateObj = new Date(Date.UTC(y, m - 1, d));
+  } else if (dateStr && !Number.isNaN(Date.parse(dateStr))) {
+    const parsed = new Date(dateStr);
+    dateObj = new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+  } else {
+    const now = new Date();
+    dateObj = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  }
+  const start = new Date(dateObj);
+  const end = new Date(dateObj);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { start, end, dateObj };
+}
+
+// POST /api/workout-sessions/start OR /api/workouts/start
+export const startWorkoutSession = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.userId || !mongoose.isValidObjectId(req.userId)) {
+      res.status(401).json({ success: false, message: "Authentication required" });
+      return;
+    }
+
+    const { workoutDate, title } = req.body;
+    const { start, end, dateObj } = getUtcDayBounds(workoutDate);
+
+    // Look for existing session today
+    let session = await WorkoutSession.findOne({
+      userId: req.userId,
+      workoutDate: { $gte: start, $lt: end },
+    });
+
+    if (!session) {
+      session = await WorkoutSession.create({
+        userId: req.userId,
+        workoutDate: dateObj,
+        title: typeof title === "string" && title.trim() ? title.trim() : "Workout Session",
+        status: "in_progress",
+        startedAt: new Date(),
+        exercises: [],
+        durationMinutes: 0,
+        caloriesBurned: 0,
+      });
+    } else if (session.status !== "completed") {
+      session.status = "in_progress";
+      if (!session.startedAt) session.startedAt = new Date();
+      await session.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Workout session active",
+      session,
+    });
+  } catch (error) {
+    console.error("Start workout session error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to start workout session",
+    });
+  }
+};
+
+// POST /api/workout-sessions/complete-exercise OR /api/workouts/complete-exercise
+export const completeExercise = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.userId || !mongoose.isValidObjectId(req.userId)) {
+      res.status(401).json({ success: false, message: "Authentication required" });
+      return;
+    }
+
+    const {
+      workoutDate,
+      sessionId,
+      exerciseId,
+      exerciseName,
+      category,
+      machineName,
+      equipmentType,
+      sets,
+      reps,
+      weight,
+      weightKg,
+      duration,
+      durationSeconds,
+      caloriesBurned,
+      notes,
+    } = req.body;
+
+    if (!exerciseName || typeof exerciseName !== "string" || !exerciseName.trim()) {
+      res.status(400).json({
+        success: false,
+        message: "exerciseName is required",
+      });
+      return;
+    }
+
+    const { start, end, dateObj } = getUtcDayBounds(workoutDate);
+
+    let session: any = null;
+    if (sessionId && mongoose.isValidObjectId(sessionId)) {
+      session = await WorkoutSession.findOne({ _id: sessionId, userId: req.userId });
+    }
+
+    if (!session) {
+      session = await WorkoutSession.findOne({
+        userId: req.userId,
+        workoutDate: { $gte: start, $lt: end },
+      });
+    }
+
+    if (!session) {
+      session = new WorkoutSession({
+        userId: req.userId,
+        workoutDate: dateObj,
+        title: "Workout Session",
+        status: "in_progress",
+        startedAt: new Date(),
+        exercises: [],
+        durationMinutes: 0,
+        caloriesBurned: 0,
+      });
+    }
+
+    // Construct valid sets array
+    let preparedSets: Array<{
+      setNumber: number;
+      weightKg: number;
+      reps: number;
+      completed: boolean;
+      restSeconds?: number;
+    }> = [];
+
+    if (Array.isArray(sets) && sets.length > 0) {
+      preparedSets = sets.map((s, idx) => ({
+        setNumber: typeof s.setNumber === "number" ? s.setNumber : idx + 1,
+        weightKg: typeof s.weightKg === "number" ? s.weightKg : typeof weight === "number" ? weight : typeof weightKg === "number" ? weightKg : 0,
+        reps: typeof s.reps === "number" ? s.reps : typeof reps === "number" ? reps : 10,
+        completed: s.completed !== undefined ? Boolean(s.completed) : true,
+        restSeconds: typeof s.restSeconds === "number" ? s.restSeconds : 60,
+      }));
+    } else {
+      const setCount = typeof sets === "number" && sets > 0 ? sets : 1;
+      const singleReps = typeof reps === "number" ? reps : 10;
+      const singleWeight = typeof weight === "number" ? weight : typeof weightKg === "number" ? weightKg : 0;
+      for (let i = 1; i <= setCount; i++) {
+        preparedSets.push({
+          setNumber: i,
+          weightKg: singleWeight,
+          reps: singleReps,
+          completed: true,
+          restSeconds: 60,
+        });
+      }
+    }
+
+    const totalReps = preparedSets.reduce((sum, s) => sum + (s.completed ? s.reps : 0), 0);
+    const exerciseDurationSec = typeof durationSeconds === "number"
+      ? durationSeconds
+      : typeof duration === "number"
+      ? duration * 60
+      : preparedSets.length * 90;
+
+    // Reliable calorie calculation: ~6-8 kcal per min of resistance training or MET formula
+    const calculatedCalories = typeof caloriesBurned === "number" && caloriesBurned > 0
+      ? caloriesBurned
+      : Math.max(3, Math.round((exerciseDurationSec / 60) * 6.5 + totalReps * 0.2));
+
+    const cleanExId = typeof exerciseId === "string" ? exerciseId.trim() : undefined;
+    const cleanName = exerciseName.trim();
+
+    // Check if exercise is already present in session
+    const existingIndex = session.exercises.findIndex((ex: any) =>
+      (cleanExId && ex.exerciseId === cleanExId) ||
+      ex.exerciseName.toLowerCase() === cleanName.toLowerCase()
+    );
+
+    const exerciseData = {
+      exerciseId: cleanExId,
+      exerciseName: cleanName,
+      category: typeof category === "string" ? category.trim() : undefined,
+      machineName: typeof machineName === "string" ? machineName.trim() : cleanName,
+      equipmentType: typeof equipmentType === "string" ? equipmentType.trim() : "Standard",
+      durationSeconds: exerciseDurationSec,
+      caloriesBurned: calculatedCalories,
+      completedAt: new Date(),
+      sets: preparedSets,
+      notes: typeof notes === "string" ? notes.trim() : undefined,
+    };
+
+    if (existingIndex >= 0) {
+      session.exercises[existingIndex] = exerciseData;
+    } else {
+      session.exercises.push(exerciseData);
+    }
+
+    // Recalculate duration & calories
+    const totalSecs = session.exercises.reduce((acc: number, ex: any) => acc + (ex.durationSeconds || 0), 0);
+    session.durationMinutes = Math.max(1, Math.round(totalSecs / 60));
+    session.caloriesBurned = session.exercises.reduce((acc: number, ex: any) => acc + (ex.caloriesBurned || 0), 0);
+
+    await session.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Exercise completed and synchronized with session",
+      session,
+      exercise: exerciseData,
+    });
+  } catch (error) {
+    console.error("Complete exercise error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to record completed exercise",
+    });
+  }
+};
+
+// POST /api/workout-sessions/complete-session OR /api/workouts/complete-session
+export const completeSession = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.userId || !mongoose.isValidObjectId(req.userId)) {
+      res.status(401).json({ success: false, message: "Authentication required" });
+      return;
+    }
+
+    const { sessionId, workoutDate, durationMinutes, caloriesBurned, notes } = req.body;
+    const { start, end, dateObj } = getUtcDayBounds(workoutDate);
+
+    let session: any = null;
+    if (sessionId && mongoose.isValidObjectId(sessionId)) {
+      session = await WorkoutSession.findOne({ _id: sessionId, userId: req.userId });
+    }
+
+    if (!session) {
+      session = await WorkoutSession.findOne({
+        userId: req.userId,
+        workoutDate: { $gte: start, $lt: end },
+      }).sort({ createdAt: -1 });
+    }
+
+    if (!session) {
+      session = new WorkoutSession({
+        userId: req.userId,
+        workoutDate: dateObj,
+        title: "Workout Session",
+        exercises: [],
+      });
+    }
+
+    session.status = "completed";
+    session.completedAt = new Date();
+    if (!session.startedAt) {
+      session.startedAt = new Date(Date.now() - (Number(durationMinutes) || 30) * 60 * 1000);
+    }
+
+    if (typeof durationMinutes === "number" && durationMinutes > 0) {
+      session.durationMinutes = durationMinutes;
+    } else if (session.durationMinutes <= 0) {
+      session.durationMinutes = Math.max(1, Math.round((Date.now() - session.startedAt.getTime()) / 60000));
+    }
+
+    if (typeof caloriesBurned === "number" && caloriesBurned > 0) {
+      session.caloriesBurned = caloriesBurned;
+    } else if (!session.caloriesBurned || session.caloriesBurned <= 0) {
+      session.caloriesBurned = Math.round(session.durationMinutes * 7.5);
+    }
+
+    if (typeof notes === "string") {
+      session.notes = notes.trim();
+    }
+
+    // Mark all sets as completed
+    for (const ex of session.exercises) {
+      for (const set of ex.sets) {
+        set.completed = true;
+      }
+    }
+
+    await session.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Workout session finished and completed",
+      session,
+    });
+  } catch (error) {
+    console.error("Complete session error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to finish workout session",
     });
   }
 };

@@ -24,6 +24,12 @@ import {
 } from "../../constants/workouts";
 import { useAuth } from "../../context/AuthContext";
 import { fetchWorkout, saveWorkout } from "../../services/workoutApi";
+import {
+  completeExercise as completeExerciseApi,
+  completeSession as completeSessionApi,
+  startWorkoutSession as startWorkoutSessionApi,
+} from "../../services/workoutSessionApi";
+import { getLocalDateString } from "../../utils/dateUtils";
 
 type Choice<T extends string> = {
   label: string;
@@ -288,16 +294,57 @@ export default function WorkoutsScreen() {
     );
   };
 
-  const toggleExercise = (id: string) => {
+  const toggleExercise = async (id: string) => {
     if (!currentDay) return;
 
     const key = `${currentDay.id}:${id}`;
+    const willBeCompleted = !completed.includes(key);
 
     setCompleted((previous) =>
       previous.includes(key)
         ? previous.filter((item) => item !== key)
         : [...previous, key],
     );
+
+    // If an exercise is being marked as completed, save to MongoDB session in real-time
+    if (willBeCompleted && accessToken) {
+      const exercise = currentDay.exercises.find((item) => item.id === id);
+      if (exercise) {
+        try {
+          const setsCount = exercise.sets || 3;
+          const repsCount = exercise.reps || 10;
+          await completeExerciseApi(accessToken, {
+            exerciseId: exercise.id,
+            exerciseName: exercise.name,
+            category: exercise.muscle,
+            machineName: exercise.muscle,
+            workoutDate: getLocalDateString(),
+            durationSeconds: setsCount * 90,
+            sets: Array.from({ length: setsCount }).map((_, idx) => ({
+              setNumber: idx + 1,
+              weightKg: 20,
+              reps: repsCount,
+              completed: true,
+            })),
+            reps: repsCount * setsCount,
+            weight: 20,
+          });
+
+          // Check if this completes all exercises for the current day
+          const remainingUnfinished = currentDay.exercises.filter(
+            (ex) => ex.id !== id && !completed.includes(`${currentDay.id}:${ex.id}`)
+          );
+          if (remainingUnfinished.length === 0) {
+            await completeSessionApi(accessToken, {
+              workoutDate: getLocalDateString(),
+              durationMinutes: Math.max(15, currentDay.exercises.length * 8),
+            });
+          }
+        } catch (e) {
+          console.warn("Failed to sync completed exercise with session:", e);
+        }
+      }
+    }
   };
 
   const updateExercise = (

@@ -92,9 +92,11 @@ export default function ProfileScreen() {
 
   // Form states for profile details modal
   const [formName, setFormName] = useState("");
+  const [formPhone, setFormPhone] = useState("");
   const [formHeight, setFormHeight] = useState("");
   const [formWeight, setFormWeight] = useState("");
   const [formTargetWeight, setFormTargetWeight] = useState("");
+  const [formGender, setFormGender] = useState("prefer_not_to_say");
 
   // Load persisted local preferences on mount
   useEffect(() => {
@@ -144,9 +146,11 @@ export default function ProfileScreen() {
 
   const openDetailsModal = () => {
     setFormName(user?.name || "");
+    setFormPhone(user?.phoneNumber || "");
     setFormHeight(user?.heightCm ? String(user.heightCm) : "");
     setFormWeight(user?.currentWeightKg ? String(user.currentWeightKg) : "");
     setFormTargetWeight(user?.targetWeightKg ? String(user.targetWeightKg) : "");
+    setFormGender(user?.gender || "prefer_not_to_say");
     setActiveModal("details");
   };
 
@@ -159,6 +163,24 @@ export default function ProfileScreen() {
     const updates: Record<string, unknown> = {
       name: formName.trim(),
     };
+
+    if (formPhone.trim()) {
+      const cleaned = formPhone.trim().replace(/[\s\-()]/g, "");
+      const indianRegex = /^(?:\+91|91|0)?[6-9]\d{9}$/;
+      const internationalRegex = /^\+?[1-9]\d{6,14}$/;
+      if (!indianRegex.test(cleaned) && !internationalRegex.test(cleaned)) {
+        Alert.alert(
+          "Invalid Phone",
+          "Please enter a valid phone number (10-digit Indian number or international format)."
+        );
+        return;
+      }
+      updates.phoneNumber = cleaned;
+    }
+
+    if (formGender) {
+      updates.gender = formGender;
+    }
 
     if (formHeight.trim()) {
       const h = Number(formHeight);
@@ -296,6 +318,11 @@ export default function ProfileScreen() {
         <View style={styles.profileInfo}>
           <Text style={styles.name}>{displayName}</Text>
           <Text style={styles.email}>{displayEmail}</Text>
+          {user?.phoneNumber ? (
+            <Text style={[styles.email, { marginTop: 2, color: COLORS.primary }]}>
+              📞 {user.phoneNumber}
+            </Text>
+          ) : null}
 
           <View style={styles.memberBadge}>
             <View style={styles.onlineDot} />
@@ -536,6 +563,16 @@ export default function ProfileScreen() {
               onChangeText={setFormName}
               placeholder="Your name"
               placeholderTextColor={COLORS.textSecondary}
+            />
+
+            <Text style={styles.inputLabel}>Phone Number</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={formPhone}
+              onChangeText={setFormPhone}
+              placeholder="e.g. +91 9876543210"
+              placeholderTextColor={COLORS.textSecondary}
+              keyboardType="phone-pad"
             />
 
             <Text style={styles.inputLabel}>Height (cm)</Text>

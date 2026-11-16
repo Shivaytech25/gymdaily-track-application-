@@ -59,5 +59,6 @@ function authenticate(
 }
 
 router.get("/", authenticate, getDashboard);
+router.get("/summary", authenticate, getDashboard);
 
 export default router;

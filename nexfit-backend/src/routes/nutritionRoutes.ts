@@ -9,6 +9,8 @@ import {
   addNutritionMeal,
   updateNutritionMeal,
   deleteNutritionMeal,
+  updateFoodItem,
+  getNutritionHistory,
 } from "../controllers/nutritionController";
 
 const router = Router();
@@ -61,9 +63,11 @@ const authenticate = (
 };
 
 router.get("/", authenticate, getNutritionLog);
+router.get("/history", authenticate, getNutritionHistory);
 router.put("/", authenticate, saveNutritionLog);
 router.post("/meal", authenticate, addNutritionMeal);
 router.patch("/meal/:mealId", authenticate, updateNutritionMeal);
+router.patch("/meal/:mealId/food/:foodId", authenticate, updateFoodItem);
 router.delete("/meal/:mealId", authenticate, deleteNutritionMeal);
 
 export default router;

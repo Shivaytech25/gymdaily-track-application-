@@ -22,8 +22,10 @@ export type DietPreference =
 export interface IUser extends Document {
   name: string;
   email: string;
+  phoneNumber?: string;
   passwordHash: string;
   dateOfBirth?: Date;
+  gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say';
   heightCm?: number;
   currentWeightKg?: number;
   targetWeightKg?: number;
@@ -54,6 +56,12 @@ const userSchema = new Schema<IUser>(
       maxlength: 254,
     },
 
+    phoneNumber: {
+      type: String,
+      trim: true,
+      sparse: true,
+    },
+
     passwordHash: {
       type: String,
       required: true,
@@ -62,6 +70,12 @@ const userSchema = new Schema<IUser>(
 
     dateOfBirth: {
       type: Date,
+    },
+
+    gender: {
+      type: String,
+      enum: ['male', 'female', 'other', 'prefer_not_to_say'],
+      default: 'prefer_not_to_say',
     },
 
     heightCm: {

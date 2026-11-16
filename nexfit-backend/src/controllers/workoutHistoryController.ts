@@ -210,6 +210,7 @@ export async function getWorkoutHistory(req: Request, res: Response) {
     return res.status(200).json({
       success: true,
       data: sessions,
+      sessions,
       pagination: {
         page,
         limit,

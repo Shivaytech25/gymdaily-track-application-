@@ -66,4 +66,7 @@ router.get("/profile", authenticate, getProfile);
 // PATCH /api/users/profile
 router.patch("/profile", authenticate, updateProfile);
 
+// PUT /api/users/profile
+router.put("/profile", authenticate, updateProfile);
+
 export default router;

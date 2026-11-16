@@ -17,11 +17,24 @@ import { COLORS, SPACING, RADIUS, TYPOGRAPHY } from "../../constants/theme";
 import { useAuth } from "../../context/AuthContext";
 import { API_BASE_URL } from "../../services/apiConfig";
 import { fetchWorkout } from "../../services/workoutApi";
-import { createWorkoutSession } from "../../services/workoutSessionApi";
+import {
+  createWorkoutSession,
+  startWorkoutSession,
+  completeExercise,
+  completeSession,
+} from "../../services/workoutSessionApi";
+import {
+  getLocalDateString,
+  formatDisplayDate,
+  useDayChangeDetector,
+} from "../../utils/dateUtils";
 
 type DashboardData = {
+  workoutStatus: "not_started" | "in_progress" | "completed";
   caloriesConsumed: number;
   calorieGoal: number;
+  caloriesRemaining: number;
+  nutritionPercentage: number;
   proteinConsumed: number;
   proteinGoal: number;
   carbsConsumed: number;
@@ -34,12 +47,21 @@ type DashboardData = {
   streakDays: number;
   completedExercises: number;
   totalExercises: number;
+  completedSets: number;
+  totalReps: number;
+  workoutDurationMinutes: number;
+  caloriesBurned: number;
+  workoutCompletionPercentage: number;
+  lastWorkoutDate: string | null;
   activeDays: number[];
 };
 
 const DEFAULT_DASHBOARD: DashboardData = {
+  workoutStatus: "not_started",
   caloriesConsumed: 0,
   calorieGoal: 2000,
+  caloriesRemaining: 2000,
+  nutritionPercentage: 0,
   proteinConsumed: 0,
   proteinGoal: 150,
   carbsConsumed: 0,
@@ -52,6 +74,12 @@ const DEFAULT_DASHBOARD: DashboardData = {
   streakDays: 0,
   completedExercises: 0,
   totalExercises: 6,
+  completedSets: 0,
+  totalReps: 0,
+  workoutDurationMinutes: 0,
+  caloriesBurned: 0,
+  workoutCompletionPercentage: 0,
+  lastWorkoutDate: null,
   activeDays: [],
 };
 
@@ -115,18 +143,28 @@ export default function HomeScreen() {
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
   const [dashboardError, setDashboardError] = useState("");
 
-  const loadDashboard = useCallback(async () => {
+  const localToday = useDayChangeDetector((newDay) => {
+    // When date rolls over to a new day, clear active timer if from previous day and reload
+    setWorkoutSeconds(0);
+    setCompletedExercises(0);
+    setIsWorkoutRunning(false);
+    AsyncStorage.removeItem("@nexfit_active_workout").catch(() => {});
+    void loadDashboard(newDay);
+  });
+
+  const loadDashboard = useCallback(async (targetDate?: string) => {
     // If not authenticated after initialization, show default dashboard
     if (!isAuthenticated) {
       setDashboard(DEFAULT_DASHBOARD);
       return;
     }
 
+    const queryDate = targetDate || getLocalDateString();
     setIsLoadingDashboard(true);
     setDashboardError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/dashboard`, {
+      const response = await fetch(`${API_BASE_URL}/dashboard?date=${encodeURIComponent(queryDate)}`, {
         method: "GET",
         headers: {
           Accept: "application/json",
@@ -177,6 +215,18 @@ export default function HomeScreen() {
               ["calorieGoal", "dailyCalorieGoal", "targetCalories"],
               2000,
             );
+
+      const caloriesRemaining =
+        payload.nutrition?.caloriesRemaining != null
+          ? Number(payload.nutrition.caloriesRemaining)
+          : Math.max(0, calorieGoal - caloriesConsumed);
+
+      const nutritionPercentage =
+        payload.nutrition?.completionPercentage != null
+          ? Number(payload.nutrition.completionPercentage)
+          : calorieGoal > 0
+          ? Math.min(100, Math.round((caloriesConsumed / calorieGoal) * 100))
+          : 0;
 
       const proteinConsumed =
         nutritionConsumed?.protein != null
@@ -249,32 +299,59 @@ export default function HomeScreen() {
             ? payload.activeDays
             : [];
 
-      const streakDays = readNumber(
-        payload,
-        ["streakDays", "streak"],
-        activeDays.length,
-      );
+      const streakDays =
+        workout?.streakDays != null
+          ? Number(workout.streakDays)
+          : readNumber(payload, ["streakDays", "streak"], 0);
 
-      const completedExercises =
+      const completedExercisesCount =
+        workout?.completedExercises != null
+          ? Number(workout.completedExercises)
+          : readNumber(payload, ["completedExercises", "exercisesCompleted"], 0);
+
+      const totalExercisesCount =
+        workout?.totalExercises != null
+          ? Number(workout.totalExercises)
+          : readNumber(payload, ["totalExercises", "exerciseCount"], 6);
+
+      const completedSets =
         workout?.completedSets != null
           ? Number(workout.completedSets)
-          : readNumber(
-              payload,
-              ["completedExercises", "exercisesCompleted"],
-              0,
-            );
+          : 0;
 
-      const totalExercises =
-        workout?.sessions != null && workout.sessions > 0
-          ? Math.max(1, workout.sessions * 5)
-          : Math.max(
-              1,
-              readNumber(payload, ["totalExercises", "exerciseCount"], 6),
-            );
+      const totalReps =
+        workout?.totalReps != null
+          ? Number(workout.totalReps)
+          : 0;
+
+      const workoutDurationMinutes =
+        workout?.durationMinutes != null
+          ? Number(workout.durationMinutes)
+          : 0;
+
+      const workoutCaloriesBurned =
+        workout?.caloriesBurned != null
+          ? Number(workout.caloriesBurned)
+          : 0;
+
+      const workoutCompletionPercentage =
+        workout?.completionPercentage != null
+          ? Number(workout.completionPercentage)
+          : totalExercisesCount > 0
+          ? Math.min(100, Math.round((completedExercisesCount / totalExercisesCount) * 100))
+          : 0;
+
+      const workoutStatus =
+        workout?.status || payload.todayWorkoutStatus || (completedExercisesCount > 0 ? "completed" : "not_started");
+
+      const lastWorkoutDate = workout?.lastWorkoutDate ?? payload.lastWorkoutDate ?? null;
 
       setDashboard({
+        workoutStatus,
         caloriesConsumed,
         calorieGoal,
+        caloriesRemaining,
+        nutritionPercentage,
         proteinConsumed,
         proteinGoal,
         carbsConsumed,
@@ -285,8 +362,14 @@ export default function HomeScreen() {
         waterGoalLitres,
         bodyWeight: weight >= 0 ? weight : null,
         streakDays,
-        completedExercises,
-        totalExercises,
+        completedExercises: completedExercisesCount,
+        totalExercises: totalExercisesCount,
+        completedSets,
+        totalReps,
+        workoutDurationMinutes,
+        caloriesBurned: workoutCaloriesBurned,
+        workoutCompletionPercentage,
+        lastWorkoutDate,
         activeDays,
       });
     } catch (error) {
@@ -306,6 +389,15 @@ export default function HomeScreen() {
       void loadDashboard();
     }
   }, [isInitializing, loadDashboard]);
+
+  // Reload dashboard on screen focus (e.g. returning from Nutrition, Workout, or Profile)
+  useFocusEffect(
+    useCallback(() => {
+      if (!isInitializing && isAuthenticated) {
+        void loadDashboard();
+      }
+    }, [isInitializing, isAuthenticated, loadDashboard])
+  );
 
   // Restore active workout session across tab switches
   useFocusEffect(
@@ -372,6 +464,14 @@ export default function HomeScreen() {
     const nextRunning = !isWorkoutRunning;
     setIsWorkoutRunning(nextRunning);
 
+    if (nextRunning && accessToken) {
+      try {
+        await startWorkoutSession(accessToken, { workoutDate: getLocalDateString() });
+      } catch (e) {
+        console.warn("Failed to create active session:", e);
+      }
+    }
+
     try {
       await AsyncStorage.setItem(
         "@nexfit_active_workout",
@@ -388,7 +488,13 @@ export default function HomeScreen() {
   };
 
   const handleCompleteExercise = async () => {
-    const nextCount = Math.min(totalExercises, (completedExercises > 0 ? completedExercises : dashboard.completedExercises) + 1);
+    if (!accessToken) {
+      Alert.alert("Login Required", "Please log in to record exercises.");
+      return;
+    }
+
+    const currentCount = completedExercises > 0 ? completedExercises : dashboard.completedExercises;
+    const nextCount = Math.min(totalExercises, currentCount + 1);
     setCompletedExercises(nextCount);
 
     try {
@@ -404,6 +510,44 @@ export default function HomeScreen() {
     } catch {
       // Ignore storage error
     }
+
+    // Immediately save exercise completion to MongoDB
+    try {
+      let exerciseName = `Exercise ${nextCount}`;
+      let category = "Full Body";
+      try {
+        const userPlan = await fetchWorkout(accessToken);
+        if (userPlan && Array.isArray(userPlan.plan) && userPlan.plan.length > 0) {
+          const exList = (userPlan.plan[0] as any)?.exercises || [];
+          if (exList[currentCount]) {
+            exerciseName = exList[currentCount].name || exerciseName;
+            category = exList[currentCount].muscle || category;
+          }
+        }
+      } catch {}
+
+      await completeExercise(accessToken, {
+        workoutDate: getLocalDateString(),
+        exerciseName,
+        category,
+        reps: 10,
+        weight: 20,
+        durationSeconds: 90,
+        sets: [
+          {
+            setNumber: 1,
+            weightKg: 20,
+            reps: 10,
+            completed: true,
+          },
+        ],
+      });
+
+      // Synchronize dashboard real-time data immediately
+      await loadDashboard();
+    } catch (e) {
+      console.warn("Failed to complete exercise in MongoDB:", e);
+    }
   };
 
   const handleSaveWorkoutSession = async () => {
@@ -415,84 +559,15 @@ export default function HomeScreen() {
     if (isSavingSession) return;
 
     const durationMinutes = Math.max(1, Math.round(workoutSeconds / 60));
-    const exercisesCount = Math.max(1, completedExercises > 0 ? completedExercises : dashboard.completedExercises);
     const estimatedCalories = Math.round(durationMinutes * 7.5);
 
     setIsSavingSession(true);
 
     try {
-      let sessionTitle = "Daily Workout Session";
-      let sessionExercises: Array<{
-        exerciseName: string;
-        machineName: string;
-        equipmentType?: string;
-        sets: Array<{
-          setNumber: number;
-          weightKg: number;
-          reps: number;
-          completed: boolean;
-        }>;
-      }> = [];
-
-      try {
-        const userWorkout = await fetchWorkout(accessToken);
-        if (userWorkout && Array.isArray(userWorkout.plan) && userWorkout.plan.length > 0) {
-          const firstDay: any = userWorkout.plan[0];
-          if (firstDay?.title) {
-            sessionTitle = firstDay.title;
-          }
-          if (Array.isArray(firstDay?.exercises) && firstDay.exercises.length > 0) {
-            const planExercises = firstDay.exercises.slice(0, exercisesCount);
-            sessionExercises = planExercises.map((ex: any, idx: number) => ({
-              exerciseName: ex.name || `Exercise ${idx + 1}`,
-              machineName: ex.muscle || "General",
-              equipmentType: (Array.isArray(ex.equipment) && ex.equipment[0]) || "Standard",
-              sets: Array.from({ length: Math.max(1, ex.sets || 3) }).map((_, sIdx) => ({
-                setNumber: sIdx + 1,
-                weightKg: 20,
-                reps: ex.reps || 10,
-                completed: true,
-              })),
-            }));
-          }
-        }
-      } catch {
-        // Fall back to default exercise library
-      }
-
-      if (sessionExercises.length === 0) {
-        const standardExercises = [
-          { name: "Push-ups", muscle: "Chest", reps: 12 },
-          { name: "Bodyweight Squats", muscle: "Legs", reps: 15 },
-          { name: "Plank", muscle: "Core", reps: 1 },
-          { name: "Dumbbell Rows", muscle: "Back", reps: 10 },
-          { name: "Shoulder Press", muscle: "Shoulders", reps: 10 },
-          { name: "Bicep Curls", muscle: "Arms", reps: 12 },
-        ];
-        sessionExercises = Array.from({ length: exercisesCount }).map((_, idx) => {
-          const ex = standardExercises[idx % standardExercises.length];
-          return {
-            exerciseName: ex.name,
-            machineName: ex.muscle,
-            equipmentType: "Standard",
-            sets: [
-              {
-                setNumber: 1,
-                weightKg: 20,
-                reps: ex.reps,
-                completed: true,
-              },
-            ],
-          };
-        });
-      }
-
-      await createWorkoutSession(accessToken, {
-        workoutDate: new Date().toISOString(),
-        title: sessionTitle,
+      await completeSession(accessToken, {
+        workoutDate: getLocalDateString(),
         durationMinutes,
         caloriesBurned: estimatedCalories,
-        exercises: sessionExercises,
       });
 
       await AsyncStorage.removeItem("@nexfit_active_workout");
@@ -503,7 +578,10 @@ export default function HomeScreen() {
 
       await loadDashboard();
 
-      Alert.alert("Workout Saved", "Your workout session has been saved to MongoDB and added to your activity!");
+      Alert.alert(
+        "Workout Saved",
+        "Your workout session has been saved to MongoDB and added to your activity!"
+      );
     } catch (error) {
       console.warn("Failed to save workout session:", error);
       Alert.alert(
@@ -592,8 +670,8 @@ export default function HomeScreen() {
           <View>
             <Text style={styles.greeting}>
               {user?.name
-                ? `Let's get stronger, ${user.name.split(" ")[0]}.`
-                : "Let's get stronger."}
+                ? `LET'S GET STRONGER, ${user.name.split(" ")[0].toUpperCase()}`
+                : "LET'S GET STRONGER"} · {formatDisplayDate(getLocalDateString()).toUpperCase()}
             </Text>
             <Text style={styles.title}>YOUR FITNESS JOURNEY</Text>
           </View>
@@ -624,12 +702,36 @@ export default function HomeScreen() {
             <View
               style={[
                 styles.liveBadge,
-                isWorkoutRunning && styles.runningBadge,
+                isWorkoutRunning
+                  ? styles.runningBadge
+                  : dashboard.workoutStatus === "completed"
+                  ? { backgroundColor: "rgba(198, 255, 77, 0.2)", borderColor: COLORS.primary }
+                  : dashboard.workoutStatus === "in_progress"
+                  ? { backgroundColor: "rgba(255, 173, 102, 0.2)", borderColor: "#FFAD66" }
+                  : null,
               ]}
             >
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>
-                {isWorkoutRunning ? "ACTIVE" : "READY"}
+              <View
+                style={[
+                  styles.liveDot,
+                  dashboard.workoutStatus === "completed" && { backgroundColor: COLORS.primary },
+                  dashboard.workoutStatus === "in_progress" && !isWorkoutRunning && { backgroundColor: "#FFAD66" },
+                ]}
+              />
+              <Text
+                style={[
+                  styles.liveText,
+                  dashboard.workoutStatus === "completed" && { color: COLORS.primary },
+                  dashboard.workoutStatus === "in_progress" && !isWorkoutRunning && { color: "#FFAD66" },
+                ]}
+              >
+                {isWorkoutRunning
+                  ? "ACTIVE"
+                  : dashboard.workoutStatus === "completed"
+                  ? "COMPLETED"
+                  : dashboard.workoutStatus === "in_progress"
+                  ? "IN PROGRESS"
+                  : "READY"}
               </Text>
             </View>
           </View>
@@ -643,14 +745,16 @@ export default function HomeScreen() {
           <View style={styles.heroStats}>
             <View style={styles.heroStatItem}>
               <Text style={styles.heroStatValue}>
-                {formatTime(workoutSeconds)}
+                {workoutSeconds > 0
+                  ? formatTime(workoutSeconds)
+                  : `${dashboard.workoutDurationMinutes}m`}
               </Text>
               <Text style={styles.heroStatLabel}>WORKOUT TIME</Text>
             </View>
 
             <View style={styles.heroStatItem}>
               <Text style={styles.heroStatValue}>
-                {displayedCompletedExercises}
+                {displayedCompletedExercises} / {totalExercises}
               </Text>
               <Text style={styles.heroStatLabel}>EXERCISES</Text>
             </View>
@@ -660,6 +764,37 @@ export default function HomeScreen() {
                 {dashboard.streakDays}
               </Text>
               <Text style={styles.heroStatLabel}>STREAK DAYS</Text>
+            </View>
+          </View>
+
+          {/* Additional Connected Workout Metrics */}
+          <View style={[styles.heroStats, { marginTop: 12, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)", paddingTop: 10 }]}>
+            <View style={styles.heroStatItem}>
+              <Text style={[styles.heroStatValue, { fontSize: 16 }]}>
+                {dashboard.completedSets}
+              </Text>
+              <Text style={styles.heroStatLabel}>SETS</Text>
+            </View>
+
+            <View style={styles.heroStatItem}>
+              <Text style={[styles.heroStatValue, { fontSize: 16 }]}>
+                {dashboard.totalReps}
+              </Text>
+              <Text style={styles.heroStatLabel}>TOTAL REPS</Text>
+            </View>
+
+            <View style={styles.heroStatItem}>
+              <Text style={[styles.heroStatValue, { fontSize: 16 }]}>
+                {dashboard.caloriesBurned || Math.round(workoutSeconds * 0.12)}
+              </Text>
+              <Text style={styles.heroStatLabel}>BURNED (KCAL)</Text>
+            </View>
+
+            <View style={styles.heroStatItem}>
+              <Text style={[styles.heroStatValue, { fontSize: 13, textTransform: "uppercase" }]}>
+                {dashboard.lastWorkoutDate ? formatDisplayDate(dashboard.lastWorkoutDate) : "None"}
+              </Text>
+              <Text style={styles.heroStatLabel}>LAST WORKOUT</Text>
             </View>
           </View>
 

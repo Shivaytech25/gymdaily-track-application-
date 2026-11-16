@@ -4,6 +4,8 @@ export interface UserProfile {
   id: string;
   name: string;
   email: string;
+  phoneNumber?: string;
+  gender?: string;
   fitnessGoal: string;
   experienceLevel: string;
   workoutDaysPerWeek: number;
@@ -18,6 +20,8 @@ export interface UserProfile {
 
 export interface UpdateUserProfileInput {
   name?: string;
+  phoneNumber?: string;
+  gender?: string;
   fitnessGoal?: string;
   experienceLevel?: string;
   workoutDaysPerWeek?: number;

@@ -14,6 +14,8 @@ export interface AuthUser {
   id: string;
   name: string;
   email: string;
+  phoneNumber?: string;
+  gender?: string;
   fitnessGoal: string;
   experienceLevel: string;
   workoutDaysPerWeek: number;
@@ -21,6 +23,7 @@ export interface AuthUser {
   heightCm?: number;
   currentWeightKg?: number;
   targetWeightKg?: number;
+  dateOfBirth?: string;
 }
 
 interface AuthContextValue {

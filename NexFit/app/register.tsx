@@ -7,6 +7,7 @@ import {
   EyeOff,
   Lock,
   Mail,
+  Phone,
   User,
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
@@ -41,6 +42,7 @@ export default function RegisterScreen() {
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -52,14 +54,27 @@ export default function RegisterScreen() {
 
     const normalizedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPhone = phone.trim().replace(/[\s\-()]/g, "");
 
     if (!normalizedName || !normalizedEmail || !password || !confirmPassword) {
-      setError("Please fill in all fields.");
+      setError("Please fill in all required fields.");
       return;
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       setError("Please enter a valid email address.");
+      return;
+    }
+
+    if (!normalizedPhone) {
+      setError("Please enter your phone number.");
+      return;
+    }
+
+    const indianRegex = /^(?:\+91|91|0)?[6-9]\d{9}$/;
+    const internationalRegex = /^\+?[1-9]\d{6,14}$/;
+    if (!indianRegex.test(normalizedPhone) && !internationalRegex.test(normalizedPhone)) {
+      setError("Please enter a valid phone number (10-digit Indian number or international format with +).");
       return;
     }
 
@@ -84,6 +99,7 @@ export default function RegisterScreen() {
         body: JSON.stringify({
           name: normalizedName,
           email: normalizedEmail,
+          phoneNumber: normalizedPhone,
           password,
         }),
       });
@@ -187,6 +203,25 @@ export default function RegisterScreen() {
               autoCorrect={false}
               autoComplete="email"
               textContentType="emailAddress"
+              editable={!loading}
+              returnKeyType="next"
+            />
+          </View>
+
+          <Text style={styles.label}>PHONE NUMBER</Text>
+
+          <View style={styles.inputContainer}>
+            <Phone size={19} color={MUTED} />
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 9876543210 or +91..."
+              placeholderTextColor="#62675F"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              autoCapitalize="none"
+              autoComplete="tel"
+              textContentType="telephoneNumber"
               editable={!loading}
               returnKeyType="next"
             />

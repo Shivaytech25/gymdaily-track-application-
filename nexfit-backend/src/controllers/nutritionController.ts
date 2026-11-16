@@ -402,3 +402,163 @@ export const deleteNutritionMeal = async (
     res.status(500).json({ success: false, message: "Failed to delete meal" });
   }
 };
+
+// PATCH /api/nutrition/meal/:mealId/food/:foodId?date=2026-10-18
+export const updateFoodItem = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = getUserId(req);
+    const date = req.query.date;
+    const { mealId, foodId } = req.params;
+
+    if (!userId) {
+      res.status(401).json({ success: false, message: "Authentication required" });
+      return;
+    }
+
+    if (!validDate(date) || !mongoose.isValidObjectId(mealId)) {
+      res.status(400).json({ success: false, message: "Invalid date or meal ID" });
+      return;
+    }
+
+    const { start, end } = dateRange(date);
+    const log = await NutritionLog.findOne({
+      userId,
+      logDate: { $gte: start, $lt: end },
+    });
+
+    if (!log) {
+      res.status(404).json({ success: false, message: "Nutrition log not found" });
+      return;
+    }
+
+    const mealIdStr = Array.isArray(mealId) ? mealId[0] : String(mealId);
+    const foodIdStr = Array.isArray(foodId) ? foodId[0] : String(foodId);
+
+    const meal = log.meals.id(mealIdStr);
+    if (!meal) {
+      res.status(404).json({ success: false, message: "Meal not found" });
+      return;
+    }
+
+    const food = (meal.foods as any).id?.(foodIdStr) || meal.foods.find((f: any) => String(f._id || f.id) === foodIdStr);
+    if (!food) {
+      res.status(404).json({ success: false, message: "Food item not found in meal" });
+      return;
+    }
+
+    if (req.body.name !== undefined) food.name = String(req.body.name).trim();
+    if (req.body.unit !== undefined) food.unit = String(req.body.unit).trim();
+    if (req.body.quantity !== undefined) food.quantity = Number(req.body.quantity);
+    if (req.body.calories !== undefined) food.calories = Number(req.body.calories);
+    if (req.body.protein !== undefined) food.protein = Number(req.body.protein);
+    if (req.body.carbs !== undefined) food.carbs = Number(req.body.carbs);
+    if (req.body.fats !== undefined) food.fats = Number(req.body.fats);
+    if (req.body.fiber !== undefined) food.fiber = Number(req.body.fiber);
+
+    await log.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Food item updated successfully",
+      log,
+      food,
+    });
+  } catch (error) {
+    console.error("Update food item error:", error);
+    res.status(500).json({ success: false, message: "Failed to update food item" });
+  }
+};
+
+// GET /api/nutrition/history?from=YYYY-MM-DD&to=YYYY-MM-DD&month=YYYY-MM&page=1&limit=20
+export const getNutritionHistory = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) {
+      res.status(401).json({ success: false, message: "Authentication required" });
+      return;
+    }
+
+    const { from, to, month } = req.query;
+    const filter: Record<string, unknown> = { userId };
+
+    if (typeof month === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      const [year, mNum] = month.split("-").map(Number);
+      const start = new Date(Date.UTC(year, mNum - 1, 1));
+      const end = new Date(Date.UTC(year, mNum, 1));
+      filter.logDate = { $gte: start, $lt: end };
+    } else if (from || to) {
+      const range: Record<string, Date> = {};
+      if (typeof from === "string" && validDate(from)) {
+        range.$gte = new Date(`${from}T00:00:00.000Z`);
+      }
+      if (typeof to === "string" && validDate(to)) {
+        const toDate = new Date(`${to}T00:00:00.000Z`);
+        toDate.setUTCDate(toDate.getUTCDate() + 1);
+        range.$lt = toDate;
+      }
+      if (Object.keys(range).length > 0) {
+        filter.logDate = range;
+      }
+    }
+
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+
+    const [logs, total] = await Promise.all([
+      NutritionLog.find(filter)
+        .sort({ logDate: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+      NutritionLog.countDocuments(filter),
+    ]);
+
+    const historyItems = logs.map((log) => {
+      const dateStr = log.logDate.toISOString().slice(0, 10);
+      const totals = (log.meals || []).reduce(
+        (acc, meal) => {
+          for (const food of meal.foods || []) {
+            acc.calories += food.calories || 0;
+            acc.protein += food.protein || 0;
+            acc.carbs += food.carbs || 0;
+            acc.fats += food.fats || 0;
+            acc.fiber += food.fiber || 0;
+          }
+          return acc;
+        },
+        { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 }
+      );
+
+      return {
+        _id: log._id,
+        date: dateStr,
+        totals,
+        targets: log.dailyTargets,
+        mealsCount: log.meals?.length || 0,
+        foodsCount: (log.meals || []).reduce((acc, m) => acc + (m.foods?.length || 0), 0),
+        meals: log.meals,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: historyItems,
+      history: historyItems,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Get nutrition history error:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch nutrition history" });
+  }
+};

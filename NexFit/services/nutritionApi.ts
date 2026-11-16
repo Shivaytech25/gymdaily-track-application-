@@ -163,6 +163,44 @@ export async function updateNutritionMeal(
   return nutrition;
 }
 
+/** Update a specific food item in a meal. */
+export async function updateNutritionFoodItem(
+  token: string,
+  date: string,
+  mealId: string,
+  foodId: string,
+  foodUpdates: Partial<NutritionFood>
+): Promise<NutritionLog> {
+  const result = await request<ApiResponse<{ log: NutritionLog }>>(
+    `/nutrition/meal/${encodeURIComponent(mealId)}/food/${encodeURIComponent(foodId)}${dateQuery(date)}`,
+    token,
+    {
+      method: "PATCH",
+      body: JSON.stringify(foodUpdates),
+    }
+  );
+  return result.log;
+}
+
+/** Fetch historical nutrition logs. */
+export async function fetchNutritionHistory(
+  token: string,
+  options: { from?: string; to?: string; month?: string; page?: number; limit?: number } = {}
+): Promise<{ data: any[]; pagination: any }> {
+  const params = new URLSearchParams();
+  if (options.from) params.set("from", options.from);
+  if (options.to) params.set("to", options.to);
+  if (options.month) params.set("month", options.month);
+  if (options.page !== undefined) params.set("page", String(options.page));
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return request<{ success: boolean; data: any[]; pagination: any }>(
+    `/nutrition/history${query}`,
+    token
+  );
+}
+
 /** Delete a meal by its ID. */
 export async function deleteNutritionMeal(
   token: string,

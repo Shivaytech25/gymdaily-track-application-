@@ -39,7 +39,7 @@ async function request<T>(
     },
   });
 
-  const data = await response.json().catch(() => ({}));
+  const data = (await response.json().catch(() => ({}))) as Record<string, any>;
 
   if (!response.ok) {
     throw new Error(data.message || `Request failed: ${response.status}`);

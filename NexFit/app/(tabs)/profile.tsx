@@ -1,17 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Modal,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from "../../constants/theme";
 import { useAuth } from "../../context/AuthContext";
+import { updateUserProfile } from "../../services/userApi";
 
 type SettingRowProps = {
   title: string;
@@ -50,29 +55,218 @@ function SettingRow({
   );
 }
 
+const FITNESS_GOALS = [
+  { value: "fat_loss", label: "Fat Loss", desc: "Burn fat and improve conditioning" },
+  { value: "muscle_gain", label: "Build Muscle", desc: "Hypertrophy and lean muscle growth" },
+  { value: "strength", label: "Build Strength", desc: "Increase power and heavy lifting" },
+  { value: "general_fitness", label: "General Fitness", desc: "Overall health and mobility" },
+  { value: "endurance", label: "Endurance", desc: "Stamina and cardiovascular fitness" },
+];
+
+const EXPERIENCE_LEVELS = [
+  { value: "beginner", label: "Beginner", desc: "New to training or returning" },
+  { value: "intermediate", label: "Intermediate", desc: "Consistent training for 1-2 years" },
+  { value: "advanced", label: "Advanced", desc: "Experienced lifter with 2+ years" },
+];
+
+const DIET_PREFERENCES = [
+  { value: "vegetarian", label: "Vegetarian", desc: "Plant-based with dairy" },
+  { value: "non_vegetarian", label: "Non-Vegetarian", desc: "Includes meat, poultry, fish" },
+  { value: "vegan", label: "Vegan", desc: "Exclusively plant-based" },
+  { value: "eggetarian", label: "Eggetarian", desc: "Vegetarian plus eggs" },
+  { value: "other", label: "Other", desc: "Flexible or custom dietary choices" },
+];
+
 export default function ProfileScreen() {
-  const { user, signOut } = useAuth();
+  const { user, accessToken, signOut, updateUser } = useAuth();
 
   const [notifications, setNotifications] = useState(true);
   const [reminders, setReminders] = useState(true);
   const [units, setUnits] = useState<"kg" | "lb">("kg");
 
-  const showComingSoon = (feature: string) => {
-    Alert.alert(
-      feature,
-      "This feature will be connected to your NexFit account in a future update.",
-    );
+  // Edit Modals
+  const [activeModal, setActiveModal] = useState<
+    "details" | "goal" | "level" | "schedule" | "diet" | null
+  >(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Form states for profile details modal
+  const [formName, setFormName] = useState("");
+  const [formHeight, setFormHeight] = useState("");
+  const [formWeight, setFormWeight] = useState("");
+  const [formTargetWeight, setFormTargetWeight] = useState("");
+
+  // Load persisted local preferences on mount
+  useEffect(() => {
+    async function loadLocalPrefs() {
+      try {
+        const [savedNotifs, savedReminders, savedUnits] = await Promise.all([
+          AsyncStorage.getItem("@nexfit_notifications"),
+          AsyncStorage.getItem("@nexfit_reminders"),
+          AsyncStorage.getItem("@nexfit_units"),
+        ]);
+        if (savedNotifs !== null) setNotifications(savedNotifs === "true");
+        if (savedReminders !== null) setReminders(savedReminders === "true");
+        if (savedUnits === "kg" || savedUnits === "lb") setUnits(savedUnits);
+      } catch (e) {
+        console.warn("Could not load local preferences:", e);
+      }
+    }
+    loadLocalPrefs();
+  }, []);
+
+  const handleToggleNotifications = async (val: boolean) => {
+    setNotifications(val);
+    try {
+      await AsyncStorage.setItem("@nexfit_notifications", String(val));
+    } catch {
+      // Ignore local storage error
+    }
+  };
+
+  const handleToggleReminders = async (val: boolean) => {
+    setReminders(val);
+    try {
+      await AsyncStorage.setItem("@nexfit_reminders", String(val));
+    } catch {
+      // Ignore local storage error
+    }
+  };
+
+  const handleSelectUnits = async (val: "kg" | "lb") => {
+    setUnits(val);
+    try {
+      await AsyncStorage.setItem("@nexfit_units", val);
+    } catch {
+      // Ignore local storage error
+    }
+  };
+
+  const openDetailsModal = () => {
+    setFormName(user?.name || "");
+    setFormHeight(user?.heightCm ? String(user.heightCm) : "");
+    setFormWeight(user?.currentWeightKg ? String(user.currentWeightKg) : "");
+    setFormTargetWeight(user?.targetWeightKg ? String(user.targetWeightKg) : "");
+    setActiveModal("details");
+  };
+
+  const handleSaveDetails = async () => {
+    if (!formName.trim() || formName.trim().length < 2) {
+      Alert.alert("Invalid Name", "Please enter a valid name (at least 2 characters).");
+      return;
+    }
+
+    const updates: Record<string, unknown> = {
+      name: formName.trim(),
+    };
+
+    if (formHeight.trim()) {
+      const h = Number(formHeight);
+      if (!Number.isFinite(h) || h < 50 || h > 300) {
+        Alert.alert("Invalid Height", "Height must be between 50 and 300 cm.");
+        return;
+      }
+      updates.heightCm = h;
+    }
+
+    if (formWeight.trim()) {
+      const w = Number(formWeight);
+      if (!Number.isFinite(w) || w < 20 || w > 500) {
+        Alert.alert("Invalid Weight", "Current weight must be between 20 and 500 kg.");
+        return;
+      }
+      updates.currentWeightKg = w;
+    }
+
+    if (formTargetWeight.trim()) {
+      const tw = Number(formTargetWeight);
+      if (!Number.isFinite(tw) || tw < 20 || tw > 500) {
+        Alert.alert("Invalid Target Weight", "Target weight must be between 20 and 500 kg.");
+        return;
+      }
+      updates.targetWeightKg = tw;
+    }
+
+    if (!accessToken) {
+      Alert.alert("Session Required", "Please log in to save your profile.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const updated = await updateUserProfile(accessToken, updates);
+      await updateUser(updated);
+      setActiveModal(null);
+      Alert.alert("Profile Updated", "Your personal details have been saved.");
+    } catch (err) {
+      Alert.alert("Save Failed", err instanceof Error ? err.message : "Could not update profile.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveSetting = async (field: string, value: unknown) => {
+    if (!accessToken) {
+      Alert.alert("Session Required", "Please log in to save your profile.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const updated = await updateUserProfile(accessToken, { [field]: value });
+      await updateUser(updated);
+      setActiveModal(null);
+    } catch (err) {
+      Alert.alert("Save Failed", err instanceof Error ? err.message : "Could not update setting.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Sign out and redirect to login
-  const handleSignOut = () => {
-    signOut();
+  const handleSignOut = async () => {
+    await signOut();
     router.replace("/login");
   };
 
   const displayName = user?.name || "NexFit Member";
   const displayEmail = user?.email || "Complete your profile to get started";
   const avatarInitial = displayName.trim().charAt(0).toUpperCase() || "N";
+
+  // Calculate profile completion percentage based on filled user profile fields
+  const completionItems = [
+    Boolean(user?.name),
+    Boolean(user?.fitnessGoal),
+    Boolean(user?.experienceLevel),
+    Boolean(user?.workoutDaysPerWeek),
+    Boolean(user?.dietPreference),
+    Boolean(user?.heightCm),
+    Boolean(user?.currentWeightKg),
+    Boolean(user?.targetWeightKg),
+  ];
+  const filledCount = completionItems.filter(Boolean).length;
+  const completionPercentage = Math.round((filledCount / completionItems.length) * 100);
+
+  const formatGoalSubtitle = () => {
+    const found = FITNESS_GOALS.find((g) => g.value === user?.fitnessGoal);
+    return found ? found.label : "Strength, muscle gain, fat loss";
+  };
+
+  const formatLevelSubtitle = () => {
+    const found = EXPERIENCE_LEVELS.find((l) => l.value === user?.experienceLevel);
+    return found ? found.label : "Set your experience level";
+  };
+
+  const formatScheduleSubtitle = () => {
+    return user?.workoutDaysPerWeek
+      ? `${user.workoutDaysPerWeek} training days per week`
+      : "Choose your training days";
+  };
+
+  const formatDietSubtitle = () => {
+    const found = DIET_PREFERENCES.find((d) => d.value === user?.dietPreference);
+    return found ? found.label : "Vegetarian, non-vegetarian, other";
+  };
 
   return (
     <ScrollView
@@ -88,7 +282,7 @@ export default function ProfileScreen() {
 
         <TouchableOpacity
           style={styles.editButton}
-          onPress={() => showComingSoon("Edit profile")}
+          onPress={openDetailsModal}
         >
           <Text style={styles.editButtonText}>EDIT</Text>
         </TouchableOpacity>
@@ -113,23 +307,27 @@ export default function ProfileScreen() {
       <View style={styles.completionCard}>
         <View style={styles.completionHeader}>
           <Text style={styles.sectionTitle}>Profile completion</Text>
-          <Text style={styles.completionPercent}>25%</Text>
+          <Text style={styles.completionPercent}>{completionPercentage}%</Text>
         </View>
 
         <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
+          <View style={[styles.progressFill, { width: `${completionPercentage}%` }]} />
         </View>
 
         <Text style={styles.helperText}>
-          Add your details to personalize your training experience.
+          {completionPercentage < 100
+            ? "Add your details to personalize your training experience."
+            : "Great job! Your profile is complete and optimized."}
         </Text>
 
-        <TouchableOpacity
-          style={styles.completeButton}
-          onPress={() => showComingSoon("Complete your profile")}
-        >
-          <Text style={styles.completeButtonText}>Complete profile →</Text>
-        </TouchableOpacity>
+        {completionPercentage < 100 && (
+          <TouchableOpacity
+            style={styles.completeButton}
+            onPress={openDetailsModal}
+          >
+            <Text style={styles.completeButtonText}>Complete profile →</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <Text style={styles.sectionHeading}>TRAINING PREFERENCES</Text>
@@ -138,8 +336,8 @@ export default function ProfileScreen() {
         <SettingRow
           icon="🎯"
           title="Fitness goals"
-          subtitle="Strength, muscle gain, fat loss"
-          onPress={() => showComingSoon("Fitness goals")}
+          subtitle={formatGoalSubtitle()}
+          onPress={() => setActiveModal("goal")}
         />
 
         <View style={styles.separator} />
@@ -147,8 +345,8 @@ export default function ProfileScreen() {
         <SettingRow
           icon="🏋️"
           title="Training experience"
-          subtitle="Set your experience level"
-          onPress={() => showComingSoon("Training experience")}
+          subtitle={formatLevelSubtitle()}
+          onPress={() => setActiveModal("level")}
         />
 
         <View style={styles.separator} />
@@ -156,8 +354,8 @@ export default function ProfileScreen() {
         <SettingRow
           icon="📅"
           title="Workout schedule"
-          subtitle="Choose your training days"
-          onPress={() => showComingSoon("Workout schedule")}
+          subtitle={formatScheduleSubtitle()}
+          onPress={() => setActiveModal("schedule")}
         />
 
         <View style={styles.separator} />
@@ -165,8 +363,8 @@ export default function ProfileScreen() {
         <SettingRow
           icon="🥗"
           title="Diet preferences"
-          subtitle="Vegetarian, non-vegetarian, other"
-          onPress={() => showComingSoon("Diet preferences")}
+          subtitle={formatDietSubtitle()}
+          onPress={() => setActiveModal("diet")}
         />
       </View>
 
@@ -183,7 +381,7 @@ export default function ProfileScreen() {
 
           <Switch
             value={notifications}
-            onValueChange={setNotifications}
+            onValueChange={handleToggleNotifications}
             trackColor={{
               false: COLORS.border,
               true: COLORS.primary,
@@ -204,7 +402,7 @@ export default function ProfileScreen() {
 
           <Switch
             value={reminders}
-            onValueChange={setReminders}
+            onValueChange={handleToggleReminders}
             trackColor={{
               false: COLORS.border,
               true: COLORS.primary,
@@ -229,7 +427,7 @@ export default function ProfileScreen() {
                 styles.unitOption,
                 units === "kg" && styles.unitOptionActive,
               ]}
-              onPress={() => setUnits("kg")}
+              onPress={() => handleSelectUnits("kg")}
             >
               <Text
                 style={[
@@ -246,7 +444,7 @@ export default function ProfileScreen() {
                 styles.unitOption,
                 units === "lb" && styles.unitOptionActive,
               ]}
-              onPress={() => setUnits("lb")}
+              onPress={() => handleSelectUnits("lb")}
             >
               <Text
                 style={[
@@ -268,7 +466,12 @@ export default function ProfileScreen() {
           icon="🔒"
           title="Privacy & data"
           subtitle="Manage your personal information"
-          onPress={() => showComingSoon("Privacy & data")}
+          onPress={() =>
+            Alert.alert(
+              "Privacy & Data",
+              "Your fitness records and personal measurements are strictly isolated to your authenticated account.",
+            )
+          }
         />
 
         <View style={styles.separator} />
@@ -277,7 +480,12 @@ export default function ProfileScreen() {
           icon="❓"
           title="Help & support"
           subtitle="Get help with NexFit"
-          onPress={() => showComingSoon("Help & support")}
+          onPress={() =>
+            Alert.alert(
+              "Help & Support",
+              "Need assistance? Email support@nexfit.app or visit the help desk.",
+            )
+          }
         />
 
         <View style={styles.separator} />
@@ -286,7 +494,12 @@ export default function ProfileScreen() {
           icon="ℹ️"
           title="About NexFit"
           subtitle="Version 1.0.0"
-          onPress={() => showComingSoon("About NexFit")}
+          onPress={() =>
+            Alert.alert(
+              "About NexFit",
+              "NexFit v1.0.0\nHigh-performance fitness and habit tracking.",
+            )
+          }
         />
 
         <View style={styles.separator} />
@@ -304,6 +517,249 @@ export default function ProfileScreen() {
       <Text style={styles.footerText}>BUILT FOR YOUR NEXT LEVEL.</Text>
 
       <View style={{ height: SPACING.xxl }} />
+
+      {/* Profile Details Edit Modal */}
+      <Modal
+        visible={activeModal === "details"}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setActiveModal(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Edit Profile</Text>
+
+            <Text style={styles.inputLabel}>Full Name</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={formName}
+              onChangeText={setFormName}
+              placeholder="Your name"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+
+            <Text style={styles.inputLabel}>Height (cm)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={formHeight}
+              onChangeText={setFormHeight}
+              placeholder="e.g. 175"
+              placeholderTextColor={COLORS.textSecondary}
+              keyboardType="numeric"
+            />
+
+            <Text style={styles.inputLabel}>Current Weight (kg)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={formWeight}
+              onChangeText={setFormWeight}
+              placeholder="e.g. 75"
+              placeholderTextColor={COLORS.textSecondary}
+              keyboardType="numeric"
+            />
+
+            <Text style={styles.inputLabel}>Target Weight (kg)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={formTargetWeight}
+              onChangeText={setFormTargetWeight}
+              placeholder="e.g. 70"
+              placeholderTextColor={COLORS.textSecondary}
+              keyboardType="numeric"
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setActiveModal(null)}
+                disabled={isSaving}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalSaveButton}
+                onPress={handleSaveDetails}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator size="small" color={COLORS.black} />
+                ) : (
+                  <Text style={styles.modalSaveText}>Save Changes</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Fitness Goal Selection Modal */}
+      <Modal
+        visible={activeModal === "goal"}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setActiveModal(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Select Fitness Goal</Text>
+            {FITNESS_GOALS.map((goal) => (
+              <TouchableOpacity
+                key={goal.value}
+                style={[
+                  styles.optionCard,
+                  user?.fitnessGoal === goal.value && styles.optionCardActive,
+                ]}
+                onPress={() => handleSaveSetting("fitnessGoal", goal.value)}
+                disabled={isSaving}
+              >
+                <Text
+                  style={[
+                    styles.optionLabel,
+                    user?.fitnessGoal === goal.value && styles.optionLabelActive,
+                  ]}
+                >
+                  {goal.label}
+                </Text>
+                <Text style={styles.optionDesc}>{goal.desc}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setActiveModal(null)}
+            >
+              <Text style={styles.modalCancelText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Training Experience Modal */}
+      <Modal
+        visible={activeModal === "level"}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setActiveModal(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Training Experience</Text>
+            {EXPERIENCE_LEVELS.map((lvl) => (
+              <TouchableOpacity
+                key={lvl.value}
+                style={[
+                  styles.optionCard,
+                  user?.experienceLevel === lvl.value && styles.optionCardActive,
+                ]}
+                onPress={() => handleSaveSetting("experienceLevel", lvl.value)}
+                disabled={isSaving}
+              >
+                <Text
+                  style={[
+                    styles.optionLabel,
+                    user?.experienceLevel === lvl.value && styles.optionLabelActive,
+                  ]}
+                >
+                  {lvl.label}
+                </Text>
+                <Text style={styles.optionDesc}>{lvl.desc}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setActiveModal(null)}
+            >
+              <Text style={styles.modalCancelText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Workout Schedule Modal */}
+      <Modal
+        visible={activeModal === "schedule"}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setActiveModal(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Training Days Per Week</Text>
+            <View style={styles.scheduleRow}>
+              {[1, 2, 3, 4, 5, 6, 7].map((num) => (
+                <TouchableOpacity
+                  key={num}
+                  style={[
+                    styles.scheduleNumberBox,
+                    user?.workoutDaysPerWeek === num && styles.scheduleNumberBoxActive,
+                  ]}
+                  onPress={() => handleSaveSetting("workoutDaysPerWeek", num)}
+                  disabled={isSaving}
+                >
+                  <Text
+                    style={[
+                      styles.scheduleNumberText,
+                      user?.workoutDaysPerWeek === num && styles.scheduleNumberTextActive,
+                    ]}
+                  >
+                    {num}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.helperTextCentered}>
+              Select how many days you aim to work out each week.
+            </Text>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setActiveModal(null)}
+            >
+              <Text style={styles.modalCancelText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Diet Preferences Modal */}
+      <Modal
+        visible={activeModal === "diet"}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setActiveModal(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Diet Preference</Text>
+            {DIET_PREFERENCES.map((diet) => (
+              <TouchableOpacity
+                key={diet.value}
+                style={[
+                  styles.optionCard,
+                  user?.dietPreference === diet.value && styles.optionCardActive,
+                ]}
+                onPress={() => handleSaveSetting("dietPreference", diet.value)}
+                disabled={isSaving}
+              >
+                <Text
+                  style={[
+                    styles.optionLabel,
+                    user?.dietPreference === diet.value && styles.optionLabelActive,
+                  ]}
+                >
+                  {diet.label}
+                </Text>
+                <Text style={styles.optionDesc}>{diet.desc}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setActiveModal(null)}
+            >
+              <Text style={styles.modalCancelText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -440,7 +896,6 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   progressFill: {
-    width: "25%",
     height: "100%",
     backgroundColor: COLORS.primary,
     borderRadius: RADIUS.full,
@@ -574,5 +1029,137 @@ const styles = StyleSheet.create({
     fontSize: 9,
     letterSpacing: 2,
     marginTop: 6,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    justifyContent: "flex-end",
+  },
+  modalContainer: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl,
+    padding: SPACING.xl,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  modalTitle: {
+    color: COLORS.text,
+    fontSize: TYPOGRAPHY.heading,
+    fontWeight: "800",
+    marginBottom: SPACING.lg,
+  },
+  inputLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  modalInput: {
+    backgroundColor: COLORS.surfaceElevated,
+    color: COLORS.text,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    fontSize: TYPOGRAPHY.body,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: SPACING.md,
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: SPACING.md,
+    marginTop: SPACING.md,
+  },
+  modalCancelButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  modalCancelText: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  modalSaveButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: RADIUS.full,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 120,
+  },
+  modalSaveText: {
+    color: COLORS.black,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  optionCard: {
+    backgroundColor: COLORS.surfaceElevated,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: SPACING.sm,
+  },
+  optionCardActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: "#1C2412",
+  },
+  optionLabel: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  optionLabelActive: {
+    color: COLORS.primary,
+  },
+  optionDesc: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+  },
+  modalCloseButton: {
+    alignSelf: "center",
+    marginTop: SPACING.md,
+    padding: SPACING.sm,
+  },
+  scheduleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginVertical: SPACING.md,
+  },
+  scheduleNumberBox: {
+    width: 42,
+    height: 48,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.surfaceElevated,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  scheduleNumberBoxActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  scheduleNumberText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  scheduleNumberTextActive: {
+    color: COLORS.black,
+  },
+  helperTextCentered: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: SPACING.sm,
   },
 });

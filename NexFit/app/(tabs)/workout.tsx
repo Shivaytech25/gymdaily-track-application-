@@ -53,7 +53,12 @@ const DAYS = [2, 3, 4, 5, 6];
 const DURATIONS = [20, 30, 45, 60, 90];
 
 export default function WorkoutsScreen() {
-  const { accessToken } = useAuth();
+  const { accessToken, isInitializing, signOut } = useAuth();
+
+  // Wait for authentication to initialize before making API calls
+  useEffect(() => {
+    // Just wait - the actual loading happens in the loadEffects useEffect below
+  }, [isInitializing]);
 
   const [goal, setGoal] = useState<WorkoutGoal>("muscle");
   const [level, setLevel] = useState<FitnessLevel>("beginner");
@@ -90,14 +95,17 @@ export default function WorkoutsScreen() {
   const currentDay = plan?.[activeDay];
 
   // Load the user's saved workout from the backend.
+  // Only attempt to load if token is available AND initialization is complete.
   useEffect(() => {
     let cancelled = false;
 
     async function loadSavedWorkout() {
+      // If no token after initialization, show empty state and return
       if (!accessToken) {
         setIsLoadingWorkout(false);
         setWorkoutLoaded(true);
         initialLoadFinished.current = true;
+        setSaveMessage("Log in to save your workout plan.");
         return;
       }
 
@@ -154,10 +162,15 @@ export default function WorkoutsScreen() {
       cancelled = true;
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [accessToken]);
+  }, [accessToken, isInitializing]);
 
   // Save plan and progress after changes, with a short debounce.
   useEffect(() => {
+    // Only attempt to save if:
+    // 1. Initial load is finished (initialLoadFinished.current === true)
+    // 2. We have a valid accessToken
+    // 3. We have a plan to save
+    // 4. Workout loaded state is true
     if (
       !workoutLoaded ||
       !initialLoadFinished.current ||
@@ -296,11 +309,11 @@ export default function WorkoutsScreen() {
 
     updateCurrentDay({
       ...currentDay,
-      exercises: currentDay.exercises.map((exercise) =>
-        exercise.id === exerciseId
+      exercises: currentDay.exercises.map((exercise) => {
+        return exercise.id === exerciseId
           ? { ...exercise, [field]: Math.max(1, exercise[field] + amount) }
-          : exercise,
-      ),
+          : exercise;
+      }),
     });
   };
 
@@ -382,6 +395,7 @@ export default function WorkoutsScreen() {
       })}
     </View>
   );
+
   if (isLoadingWorkout) {
     return (
       <SafeAreaView style={styles.container} edges={["top"]}>
@@ -500,9 +514,7 @@ export default function WorkoutsScreen() {
                     mode === "automatic" && styles.radioActive,
                   ]}
                 >
-                  {mode === "automatic" ? (
-                    <View style={styles.radioDot} />
-                  ) : null}
+                  {mode === "automatic" ? (<View style={styles.radioDot} />) : null}
                 </View>
               </Pressable>
 
@@ -828,6 +840,7 @@ export default function WorkoutsScreen() {
     </SafeAreaView>
   );
 }
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,

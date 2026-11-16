@@ -13,6 +13,7 @@ export interface IFoodItem {
 }
 
 export interface IMeal {
+  _id?: mongoose.Types.ObjectId;
   name: string;
   time?: string;
   foods: IFoodItem[];
@@ -22,7 +23,7 @@ export interface IMeal {
 export interface INutritionLog extends Document {
   userId: mongoose.Types.ObjectId;
   logDate: Date;
-  meals: IMeal[];
+  meals: mongoose.Types.DocumentArray<IMeal & mongoose.Document>;
   dailyTargets: {
     calories: number;
     protein: number;
@@ -81,5 +82,8 @@ const NutritionLogSchema = new Schema<INutritionLog>(
 
 NutritionLogSchema.index({ userId: 1, logDate: -1 }, { unique: true });
 
-export default mongoose.models.NutritionLog ||
+const NutritionLog: mongoose.Model<INutritionLog> =
+  (mongoose.models.NutritionLog as mongoose.Model<INutritionLog>) ||
   mongoose.model<INutritionLog>("NutritionLog", NutritionLogSchema);
+
+export default NutritionLog;

@@ -288,7 +288,7 @@ export async function deleteWaterEntry(req: Request, res: Response) {
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(entryId)) {
+    if (typeof entryId !== "string" || !mongoose.Types.ObjectId.isValid(entryId)) {
       return res.status(400).json({
         success: false,
         message: "Invalid water entry ID",

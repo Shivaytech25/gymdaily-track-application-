@@ -10,6 +10,8 @@ export interface BodyMeasurement {
   waistCm?: number;
   chestCm?: number;
   hipsCm?: number;
+  armsCm?: number;
+  thighsCm?: number;
   notes?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -22,6 +24,8 @@ export interface CreateBodyMeasurementInput {
   waistCm?: number;
   chestCm?: number;
   hipsCm?: number;
+  armsCm?: number;
+  thighsCm?: number;
   notes?: string;
 }
 

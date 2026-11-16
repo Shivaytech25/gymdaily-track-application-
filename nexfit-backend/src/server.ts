@@ -15,6 +15,7 @@ import bodyMeasurementRoutes from "./routes/bodyMeasurementRoutes";
 import achievementRoutes from "./routes/achievementRoutes";
 import dashboardRoutes from "./routes/dashboardRoutes";
 import workoutHistoryRoutes from "./routes/workoutHistoryRoutes";
+import userRoutes from "./routes/userRoutes";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
@@ -49,6 +50,7 @@ app.use("/api/body-measurements", bodyMeasurementRoutes);
 app.use("/api/achievements", achievementRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/workout-history", workoutHistoryRoutes);
+app.use("/api/users", userRoutes);
 
 async function startServer(): Promise<void> {
   try {

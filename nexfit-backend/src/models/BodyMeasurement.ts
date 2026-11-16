@@ -9,6 +9,8 @@ export interface IBodyMeasurement extends Document {
   waistCm?: number;
   chestCm?: number;
   hipsCm?: number;
+  armsCm?: number;
+  thighsCm?: number;
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -28,6 +30,8 @@ const BodyMeasurementSchema = new Schema<IBodyMeasurement>(
     waistCm: { type: Number, min: 0, max: 500 },
     chestCm: { type: Number, min: 0, max: 500 },
     hipsCm: { type: Number, min: 0, max: 500 },
+    armsCm: { type: Number, min: 0, max: 500 },
+    thighsCm: { type: Number, min: 0, max: 500 },
     notes: { type: String, trim: true },
   },
   { timestamps: true }
@@ -35,8 +39,11 @@ const BodyMeasurementSchema = new Schema<IBodyMeasurement>(
 
 BodyMeasurementSchema.index({ userId: 1, measuredAt: -1 });
 
-export default mongoose.models.BodyMeasurement ||
+const BodyMeasurement: mongoose.Model<IBodyMeasurement> =
+  (mongoose.models.BodyMeasurement as mongoose.Model<IBodyMeasurement>) ||
   mongoose.model<IBodyMeasurement>(
     "BodyMeasurement",
     BodyMeasurementSchema
   );
+
+export default BodyMeasurement;

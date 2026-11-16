@@ -42,5 +42,8 @@ const WaterLogSchema = new Schema<IWaterLog>(
 
 WaterLogSchema.index({ userId: 1, logDate: -1 }, { unique: true });
 
-export default mongoose.models.WaterLog ||
+const WaterLog: mongoose.Model<IWaterLog> =
+  (mongoose.models.WaterLog as mongoose.Model<IWaterLog>) ||
   mongoose.model<IWaterLog>("WaterLog", WaterLogSchema);
+
+export default WaterLog;

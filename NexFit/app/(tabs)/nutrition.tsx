@@ -22,6 +22,8 @@ const CALORIE_GOAL = 2000;
 
 type FoodEntry = {
   id: string | number;
+  mealId?: string;
+  foodId?: string;
   name: string;
   meal: string;
   calories: number;
@@ -30,20 +32,37 @@ type FoodEntry = {
   fats: number;
 };
 
-type NutritionResponse = {
-  foods?: FoodEntry[];
-  entries?: FoodEntry[];
-  data?: FoodEntry[] | { foods?: FoodEntry[]; entries?: FoodEntry[] };
-  waterIntake?: number;
-  water?: number | { amount?: number; totalMl?: number };
+type NutritionLogResponse = {
+  success: boolean;
+  date: string;
+  log: {
+    meals: FoodEntry[];
+    dailyTargets?: {
+      calories: number;
+      protein: number;
+      carbs: number;
+      fats: number;
+      fiber: number;
+    };
+    totals: {
+      calories: number;
+      protein: number;
+      carbs: number;
+      fats: number;
+      fiber: number;
+    };
+  };
+  message?: string;
 };
 
 export default function NutritionScreen() {
-  const { accessToken } = useAuth();
+  const { accessToken, isAuthenticated, isInitializing } = useAuth();
 
   const [activeMeal, setActiveMeal] = useState("Breakfast");
   const [foods, setFoods] = useState<FoodEntry[]>([]);
   const [waterMl, setWaterMl] = useState(0);
+  const [waterGoalMl, setWaterGoalMl] = useState(WATER_GOAL_ML);
+  const [waterEntries, setWaterEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingFood, setSavingFood] = useState(false);
   const [savingWater, setSavingWater] = useState(false);
@@ -55,6 +74,8 @@ export default function NutritionScreen() {
   const [foodCarbs, setFoodCarbs] = useState("");
   const [foodFats, setFoodFats] = useState("");
   const [showFoodForm, setShowFoodForm] = useState(false);
+
+  const today = new Date().toISOString().split("T")[0];
 
   const request = useCallback(
     async (path: string, options: RequestInit = {}) => {
@@ -96,9 +117,10 @@ export default function NutritionScreen() {
   );
 
   const loadNutrition = useCallback(async () => {
-    if (!accessToken) {
+    if (!isAuthenticated || !accessToken) {
       setFoods([]);
       setWaterMl(0);
+      setWaterEntries([]);
       setLoading(false);
       setError("Please log in to view your nutrition data.");
       return;
@@ -109,43 +131,61 @@ export default function NutritionScreen() {
 
     try {
       const [nutritionResult, waterResult] = await Promise.all([
-        request("/nutrition"),
-        request("/water"),
+        request(`/nutrition?date=${today}`),
+        request(`/water?date=${today}`),
       ]);
 
-      const nutritionData: NutritionResponse =
-        nutritionResult.data ?? nutritionResult;
+      const log = nutritionResult.log || nutritionResult;
+      const loadedFoods: FoodEntry[] = [];
 
-      const rawFoods =
-        nutritionData.foods ??
-        nutritionData.entries ??
-        (Array.isArray(nutritionData.data)
-          ? nutritionData.data
-          : (nutritionData.data?.foods ?? nutritionData.data?.entries)) ??
-        [];
+      if (Array.isArray(log?.meals)) {
+        for (const meal of log.meals) {
+          const mealName = meal.name || "Breakfast";
+          const mealId = meal._id ? String(meal._id) : undefined;
+          if (Array.isArray(meal.foods)) {
+            for (const food of meal.foods) {
+              const foodId = food._id ? String(food._id) : undefined;
+              loadedFoods.push({
+                id:
+                  food.id ??
+                  food._id ??
+                  `${mealName}-${food.name}-${loadedFoods.length}`,
+                mealId,
+                foodId,
+                name: food.name ?? food.foodName ?? "Food",
+                meal: mealName,
+                calories: Number(food.calories ?? 0),
+                protein: Number(food.protein ?? 0),
+                carbs: Number(food.carbs ?? 0),
+                fats: Number(food.fats ?? 0),
+              });
+            }
+          }
+        }
+      } else if (Array.isArray(log?.entries)) {
+        for (const food of log.entries) {
+          loadedFoods.push({
+            id: food.id ?? food._id ?? loadedFoods.length,
+            name: food.name ?? food.foodName ?? "Food",
+            meal: food.meal ?? food.mealType ?? "Breakfast",
+            calories: Number(food.calories ?? 0),
+            protein: Number(food.protein ?? 0),
+            carbs: Number(food.carbs ?? 0),
+            fats: Number(food.fats ?? 0),
+          });
+        }
+      }
 
-      setFoods(
-        rawFoods.map((food: any, index: number) => ({
-          id: food.id ?? food._id ?? index,
-          name: food.name ?? food.foodName ?? "Food",
-          meal: food.meal ?? food.mealType ?? "Breakfast",
-          calories: Number(food.calories ?? 0),
-          protein: Number(food.protein ?? 0),
-          carbs: Number(food.carbs ?? 0),
-          fats: Number(food.fats ?? 0),
-        })),
-      );
+      setFoods(loadedFoods);
 
       const waterData = waterResult.data ?? waterResult;
-      const rawWater =
-        waterData.totalMl ??
-        waterData.waterIntake ??
-        waterData.amount ??
-        waterData.water?.totalMl ??
-        waterData.water?.amount ??
-        (typeof waterData.water === "number" ? waterData.water : 0);
-
-      setWaterMl(Math.max(0, Number(rawWater) || 0));
+      setWaterMl(Math.max(0, Number(waterData.totalMl ?? 0)));
+      if (waterData.dailyTargetMl && Number(waterData.dailyTargetMl) > 0) {
+        setWaterGoalMl(Number(waterData.dailyTargetMl));
+      }
+      if (Array.isArray(waterData.entries)) {
+        setWaterEntries(waterData.entries);
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Unable to load nutrition data.",
@@ -153,11 +193,13 @@ export default function NutritionScreen() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, request]);
+  }, [accessToken, isAuthenticated, request, today]);
 
   useEffect(() => {
-    loadNutrition();
-  }, [loadNutrition]);
+    if (!isInitializing) {
+      void loadNutrition();
+    }
+  }, [isInitializing, loadNutrition]);
 
   const calories = foods.reduce((sum, food) => sum + food.calories, 0);
   const protein = foods.reduce((sum, food) => sum + food.protein, 0);
@@ -165,7 +207,58 @@ export default function NutritionScreen() {
   const fats = foods.reduce((sum, food) => sum + food.fats, 0);
 
   const mealFoods = foods.filter((food) => food.meal === activeMeal);
-  const waterProgress = Math.min(100, (waterMl / WATER_GOAL_ML) * 100);
+  const waterProgress = Math.min(100, (waterMl / waterGoalMl) * 100);
+
+  const deleteFood = async (food: FoodEntry) => {
+    if (!food.mealId) {
+      Alert.alert("Notice", "This entry cannot be deleted directly.");
+      return;
+    }
+
+    Alert.alert("Delete Item", `Remove "${food.name}" from ${food.meal}?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            const queryParams = [`date=${today}`];
+            if (food.foodId) {
+              queryParams.push(`foodId=${encodeURIComponent(food.foodId)}`);
+            }
+            await request(`/nutrition/meal/${food.mealId}?${queryParams.join("&")}`, {
+              method: "DELETE",
+            });
+            await loadNutrition();
+          } catch (err) {
+            Alert.alert(
+              "Error",
+              err instanceof Error ? err.message : "Failed to delete food item."
+            );
+          }
+        },
+      },
+    ]);
+  };
+
+  const changeWaterTarget = async (newTargetMl: number) => {
+    try {
+      await request(`/water/target?date=${today}`, {
+        method: "PATCH",
+        body: JSON.stringify({ dailyTargetMl: newTargetMl }),
+      });
+      setWaterGoalMl(newTargetMl);
+      Alert.alert(
+        "Goal Updated",
+        `Daily water target set to ${newTargetMl.toLocaleString()} ml.`
+      );
+    } catch (err) {
+      Alert.alert(
+        "Error",
+        err instanceof Error ? err.message : "Failed to update target."
+      );
+    }
+  };
 
   async function addFood() {
     const name = foodName.trim();
@@ -195,35 +288,26 @@ export default function NutritionScreen() {
     setSavingFood(true);
 
     try {
-      const result = await request("/nutrition", {
+      await request(`/nutrition/meal?date=${today}`, {
         method: "POST",
         body: JSON.stringify({
-          name,
-          meal: activeMeal,
-          calories: numericCalories,
-          protein: numericProtein,
-          carbs: numericCarbs,
-          fats: numericFats,
+          name: activeMeal,
+          foods: [
+            {
+              name,
+              quantity: 1,
+              unit: "serving",
+              calories: numericCalories,
+              protein: numericProtein,
+              carbs: numericCarbs,
+              fats: numericFats,
+              fiber: 0,
+            },
+          ],
         }),
       });
 
-      const saved = result.data ?? result.food ?? result.entry ?? result;
-
-      if (saved && (saved.id || saved._id)) {
-        const newFood: FoodEntry = {
-          id: saved.id ?? saved._id,
-          name: saved.name ?? saved.foodName ?? name,
-          meal: saved.meal ?? saved.mealType ?? activeMeal,
-          calories: Number(saved.calories ?? numericCalories),
-          protein: Number(saved.protein ?? numericProtein),
-          carbs: Number(saved.carbs ?? numericCarbs),
-          fats: Number(saved.fats ?? numericFats),
-        };
-
-        setFoods((current) => [...current, newFood]);
-      } else {
-        await loadNutrition();
-      }
+      await loadNutrition();
 
       setFoodName("");
       setFoodCalories("");
@@ -242,22 +326,47 @@ export default function NutritionScreen() {
   }
 
   async function changeWater(amount: number) {
-    const nextAmount = Math.max(0, waterMl + amount);
-
-    if (nextAmount === waterMl || savingWater) return;
+    if (savingWater) return;
 
     const previousAmount = waterMl;
-    setWaterMl(nextAmount);
+    const nextAmount = Math.max(0, waterMl + amount);
+    if (nextAmount === waterMl && amount <= 0) return;
+
     setSavingWater(true);
 
     try {
-      await request("/water", {
-        method: "POST",
-        body: JSON.stringify({
-          amount: nextAmount,
-          totalMl: nextAmount,
-        }),
-      });
+      if (amount > 0) {
+        const result = await request(`/water/entries?date=${today}`, {
+          method: "POST",
+          body: JSON.stringify({
+            amountMl: amount,
+          }),
+        });
+
+        const data = result.data ?? result;
+        setWaterMl(Math.max(0, Number(data.totalMl ?? nextAmount)));
+        if (Array.isArray(data.entries)) {
+          setWaterEntries(data.entries);
+        }
+      } else if (waterEntries.length > 0) {
+        const lastEntry = waterEntries[waterEntries.length - 1];
+        if (lastEntry?._id) {
+          const result = await request(
+            `/water/entries/${lastEntry._id}?date=${today}`,
+            { method: "DELETE" },
+          );
+
+          const data = result.data ?? result;
+          setWaterMl(Math.max(0, Number(data.totalMl ?? nextAmount)));
+          if (Array.isArray(data.entries)) {
+            setWaterEntries(data.entries);
+          }
+        } else {
+          setWaterMl(nextAmount);
+        }
+      } else {
+        setWaterMl(nextAmount);
+      }
     } catch (err) {
       setWaterMl(previousAmount);
       Alert.alert(
@@ -271,7 +380,7 @@ export default function NutritionScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle="light-content"  />
 
       <ScrollView
         contentContainerStyle={styles.container}
@@ -311,6 +420,7 @@ export default function NutritionScreen() {
                     <Text style={styles.unit}>kcal</Text>
                   </View>
                 </View>
+
                 <View style={styles.calorieIcon}>
                   <Text style={styles.iconText}>KCAL</Text>
                 </View>
@@ -363,7 +473,9 @@ export default function NutritionScreen() {
 
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Food diary</Text>
-              <Text style={styles.sectionMeta}>{foods.length} ENTRIES</Text>
+              <Text style={styles.sectionMeta}>
+                {foods.length} ENTRIES
+              </Text>
             </View>
 
             <ScrollView
@@ -424,10 +536,18 @@ export default function NutritionScreen() {
                         P {food.protein} g · C {food.carbs} g · F {food.fats} g
                       </Text>
                     </View>
-                    <View>
+                    <View style={{ alignItems: "flex-end" }}>
                       <Text style={styles.foodCalories}>{food.calories}</Text>
                       <Text style={styles.mutedText}>kcal</Text>
                     </View>
+                    {Boolean(food.mealId) && (
+                      <TouchableOpacity
+                        onPress={() => deleteFood(food)}
+                        style={{ padding: 6, marginLeft: 8 }}
+                      >
+                        <Text style={{ color: COLORS.danger, fontSize: 16 }}>✕</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 ))
               )}
@@ -503,7 +623,7 @@ export default function NutritionScreen() {
 
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Hydration</Text>
-              <Text style={styles.sectionMeta}>GOAL 2.5 L</Text>
+              <Text style={styles.sectionMeta}>GOAL {(waterGoalMl / 1000).toFixed(1)} L</Text>
             </View>
 
             <View style={styles.waterCard}>
@@ -514,10 +634,28 @@ export default function NutritionScreen() {
                 </Text>
                 <Text style={styles.unit}>L</Text>
               </View>
-              <Text style={styles.mutedText}>
-                {waterMl.toLocaleString()} ml of{" "}
-                {WATER_GOAL_ML.toLocaleString()} ml
-              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  Alert.alert(
+                    "Set Daily Water Target",
+                    "Select your preferred daily hydration goal:",
+                    [
+                      { text: "2.0 L (2000 ml)", onPress: () => changeWaterTarget(2000) },
+                      { text: "2.5 L (2500 ml)", onPress: () => changeWaterTarget(2500) },
+                      { text: "3.0 L (3000 ml)", onPress: () => changeWaterTarget(3000) },
+                      { text: "3.5 L (3500 ml)", onPress: () => changeWaterTarget(3500) },
+                      { text: "Cancel", style: "cancel" },
+                    ]
+                  );
+                }}
+              >
+                <Text style={styles.mutedText}>
+                  {waterMl.toLocaleString()} ml of{" "}
+                  <Text style={{ color: COLORS.primary, fontWeight: "700" }}>
+                    {waterGoalMl.toLocaleString()} ml ✎
+                  </Text>
+                </Text>
+              </TouchableOpacity>
 
               <View style={styles.track}>
                 <View
@@ -542,7 +680,8 @@ export default function NutritionScreen() {
                     <ActivityIndicator color="#65B8FF" />
                   ) : (
                     <Text style={styles.waterAddText}>+ Add 250 ml</Text>
-                  )}
+                  )
+                  }
                 </TouchableOpacity>
               </View>
             </View>

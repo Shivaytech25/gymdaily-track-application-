@@ -44,7 +44,7 @@ async function parseResponse(response: Response) {
 }
 
 export default function ProgressScreen() {
-  const { accessToken } = useAuth();
+  const { user, accessToken, isAuthenticated, isInitializing } = useAuth();
 
   const [weight, setWeight] = useState("");
   const [goalWeight, setGoalWeight] = useState("");
@@ -56,17 +56,22 @@ export default function ProgressScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const today = new Date();
+
   const headers = useCallback(
     () => ({
       Accept: "application/json",
       "Content-Type": "application/json",
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...(isAuthenticated
+        ? { Authorization: `Bearer ${accessToken}` }
+        : {}),
     }),
-    [accessToken],
+    [accessToken, isAuthenticated],
   );
 
   const loadProgress = useCallback(async () => {
-    if (!accessToken) {
+    // If not authenticated after initialization, show login required message
+    if (!isAuthenticated) {
       setLoading(false);
       setError("Please log in to view your progress.");
       return;
@@ -82,25 +87,35 @@ export default function ProgressScreen() {
       });
 
       const result = await parseResponse(response);
-      const record = result.data ?? result.progress ?? result;
+      const items = Array.isArray(result.data)
+        ? result.data
+        : result.data?.measurements ?? (result.data ? [result.data] : []);
 
-      const current =
-        record.currentWeight != null ? String(record.currentWeight) : "";
-      const goal = record.goalWeight != null ? String(record.goalWeight) : "";
+      const latest = items[0] ?? null;
 
-      setWeight(current);
-      setGoalWeight(goal);
-      setSavedWeight(current);
-      setSavedGoal(goal);
+      if (latest) {
+        const current =
+          latest.weightKg != null ? String(latest.weightKg) : "";
+        setWeight(current);
+        setSavedWeight(current);
 
-      const body = record.measurements ?? {};
+        setValues({
+          Chest: latest.chestCm != null ? String(latest.chestCm) : "",
+          Waist: latest.waistCm != null ? String(latest.waistCm) : "",
+          Arms: latest.armsCm != null ? String(latest.armsCm) : "",
+          Thighs: latest.thighsCm != null ? String(latest.thighsCm) : "",
+        });
+      } else if (user?.currentWeightKg) {
+        const current = String(user.currentWeightKg);
+        setWeight(current);
+        setSavedWeight(current);
+      }
 
-      setValues({
-        Chest: String(body.Chest ?? body.chest ?? ""),
-        Waist: String(body.Waist ?? body.waist ?? ""),
-        Arms: String(body.Arms ?? body.arms ?? ""),
-        Thighs: String(body.Thighs ?? body.thighs ?? ""),
-      });
+      if (user?.targetWeightKg) {
+        const goal = String(user.targetWeightKg);
+        setGoalWeight(goal);
+        setSavedGoal(goal);
+      }
 
       // LIVE API: GET /workout-history
       const historyResponse = await fetch(`${API_BASE_URL}/workout-history`, {
@@ -110,12 +125,16 @@ export default function ProgressScreen() {
       const historyResult = await parseResponse(historyResponse);
       const history = Array.isArray(historyResult)
         ? historyResult
-        : (historyResult.data ?? historyResult.history ?? []);
+        : (historyResult.data?.sessions ??
+          historyResult.data ??
+          historyResult.history ??
+          []);
 
       const dates = history
         .filter((item: any) => item.completed !== false)
         .map((item: any) => {
-          const date = item.completedAt ?? item.date ?? item.createdAt;
+          const date =
+            item.workoutDate ?? item.completedAt ?? item.date ?? item.createdAt;
           if (!date) return null;
 
           const parsed = new Date(date);
@@ -133,11 +152,14 @@ export default function ProgressScreen() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, headers]);
+  }, [headers, isAuthenticated, user]);
 
   useEffect(() => {
-    loadProgress();
-  }, [loadProgress]);
+    // Wait for initialization to complete, then load progress
+    if (!isInitializing) {
+      loadProgress();
+    }
+  }, [isInitializing, loadProgress]);
 
   async function saveProgress() {
     if (!accessToken) {
@@ -175,25 +197,47 @@ export default function ProgressScreen() {
         return;
       }
 
-      bodyMeasurements[item.label] = numberValue;
+      // Map frontend labels to backend field names with direct correspondence
+      if (item.label === "Chest") {
+        bodyMeasurements.chestCm = numberValue;
+      } else if (item.label === "Waist") {
+        bodyMeasurements.waistCm = numberValue;
+      } else if (item.label === "Arms") {
+        bodyMeasurements.armsCm = numberValue;
+      } else if (item.label === "Thighs") {
+        bodyMeasurements.thighsCm = numberValue;
+      }
     }
 
     setSaving(true);
     setError("");
 
     try {
-      // LIVE API: PUT /body-measurements
+      // LIVE API: POST /body-measurements
+      const payload: Record<string, any> = {
+        weightKg: current,
+        ...bodyMeasurements,
+      };
+
       const response = await fetch(`${API_BASE_URL}/body-measurements`, {
-        method: "PUT",
+        method: "POST",
         headers: headers(),
-        body: JSON.stringify({
-          currentWeight: current,
-          goalWeight: goalWeight.trim() ? goal : null,
-          measurements: bodyMeasurements,
-        }),
+        body: JSON.stringify(payload),
       });
 
       await parseResponse(response);
+
+      if (goalWeight.trim() && Number.isFinite(goal) && goal > 0) {
+        try {
+          await fetch(`${API_BASE_URL}/users/profile`, {
+            method: "PATCH",
+            headers: headers(),
+            body: JSON.stringify({ targetWeightKg: goal }),
+          });
+        } catch {
+          // Secondary profile sync failure does not fail the measurement save
+        }
+      }
 
       setSavedWeight(String(current));
       setSavedGoal(goalWeight.trim() ? String(goal) : "");
@@ -204,16 +248,12 @@ export default function ProgressScreen() {
         err instanceof Error ? err.message : "Unable to save progress.";
 
       setError(message);
-      Alert.alert(
-        "Save failed",
-        `${message}\n\nCheck that PUT /body-measurements exists in your backend and accepts this request format.`,
-      );
+      Alert.alert("Save failed", message);
     } finally {
       setSaving(false);
     }
   }
 
-  const today = new Date();
   const mondayOffset = (today.getDay() + 6) % 7;
 
   const week = Array.from({ length: 7 }, (_, index) => {
@@ -228,7 +268,7 @@ export default function ProgressScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle="light-content" />
 
       <ScrollView
         contentContainerStyle={styles.container}
@@ -403,7 +443,9 @@ export default function ProgressScreen() {
           </Text>
         </View>
 
-        <Text style={styles.footer}>NEXFIT · PROGRESS OVER PERFECTION</Text>
+        <Text style={styles.footer}>
+          NEXFIT · PROGRESS OVER PERFECTION
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );

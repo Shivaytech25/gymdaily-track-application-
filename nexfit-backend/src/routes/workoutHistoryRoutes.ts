@@ -39,9 +39,11 @@ function authenticate(
       userId?: string;
       id?: string;
       _id?: string;
+      sub?: string;
     };
 
-    const userId = decoded.userId ?? decoded.id ?? decoded._id;
+    const userId =
+      decoded.userId ?? decoded.id ?? decoded._id ?? decoded.sub;
 
     if (!userId) {
       res.status(401).json({

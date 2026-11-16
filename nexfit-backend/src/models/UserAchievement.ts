@@ -44,8 +44,11 @@ UserAchievementSchema.index(
   { unique: true }
 );
 
-export default mongoose.models.UserAchievement ||
+const UserAchievement: mongoose.Model<IUserAchievement> =
+  (mongoose.models.UserAchievement as mongoose.Model<IUserAchievement>) ||
   mongoose.model<IUserAchievement>(
     "UserAchievement",
     UserAchievementSchema
   );
+
+export default UserAchievement;

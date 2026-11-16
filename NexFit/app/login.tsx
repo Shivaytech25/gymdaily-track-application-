@@ -7,7 +7,7 @@ import {
   Lock,
   Mail,
 } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -29,7 +29,13 @@ const MUTED = "#858B82";
 const WHITE = "#F5F7F2";
 
 export default function LoginScreen() {
-  const { signIn } = useAuth();
+  const { signIn, isAuthenticated, isInitializing } = useAuth();
+
+  useEffect(() => {
+    if (!isInitializing && isAuthenticated) {
+      router.replace("/(tabs)");
+    }
+  }, [isInitializing, isAuthenticated]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

@@ -47,5 +47,8 @@ const WorkoutPlanSchema = new Schema<IWorkoutPlan>(
   }
 );
 
-export default mongoose.models.WorkoutPlan ||
+const WorkoutPlan: mongoose.Model<IWorkoutPlan> =
+  (mongoose.models.WorkoutPlan as mongoose.Model<IWorkoutPlan>) ||
   mongoose.model<IWorkoutPlan>("WorkoutPlan", WorkoutPlanSchema);
+
+export default WorkoutPlan;

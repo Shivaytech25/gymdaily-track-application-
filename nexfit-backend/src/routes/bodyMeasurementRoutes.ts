@@ -16,6 +16,7 @@ interface JwtPayload {
   userId?: string;
   id?: string;
   _id?: string;
+  sub?: string;
 }
 
 function authenticate(
@@ -49,7 +50,8 @@ function authenticate(
       secret
     ) as JwtPayload;
 
-    const userId = decoded.userId ?? decoded.id ?? decoded._id;
+    const userId =
+      decoded.userId ?? decoded.id ?? decoded._id ?? decoded.sub;
 
     if (!userId) {
       res.status(401).json({

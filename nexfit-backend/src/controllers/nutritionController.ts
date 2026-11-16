@@ -10,14 +10,14 @@ interface AuthRequest extends Request {
 const validDate = (value: unknown): value is string =>
   typeof value === "string" &&
   /^\d{4}-\d{2}-\d{2}$/.test(value) &&
-  !Number.isNaN(Date.parse(`${value}T00:00:00`)) &&
-  new Date(`${value}T00:00:00`).toISOString().slice(0, 10) === value;
+  !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)) &&
+  new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
 
 const dateRange = (date: string) => {
   const [year, month, day] = date.split("-").map(Number);
   return {
-    start: new Date(year, month - 1, day),
-    end: new Date(year, month - 1, day + 1),
+    start: new Date(Date.UTC(year, month - 1, day)),
+    end: new Date(Date.UTC(year, month - 1, day + 1)),
   };
 };
 
@@ -29,15 +29,21 @@ const isValidTargets = (targets: Record<string, unknown>): boolean =>
     (key) => targets[key] === undefined || isNonNegative(targets[key])
   );
 
-const isValidFood = (food: Record<string, unknown>): boolean =>
-  typeof food.name === "string" &&
-  food.name.trim().length > 0 &&
-  typeof food.unit === "string" &&
-  food.unit.trim().length > 0 &&
-  isNonNegative(food.quantity) &&
-  ["calories", "protein", "carbs", "fats", "fiber"].every((key) =>
-    isNonNegative(food[key])
+const isValidFood = (food: Record<string, unknown>): boolean => {
+  if (food.fiber === undefined || food.fiber === null) {
+    food.fiber = 0;
+  }
+  return (
+    typeof food.name === "string" &&
+    food.name.trim().length > 0 &&
+    typeof food.unit === "string" &&
+    food.unit.trim().length > 0 &&
+    isNonNegative(food.quantity) &&
+    ["calories", "protein", "carbs", "fats", "fiber"].every((key) =>
+      isNonNegative(food[key])
+    )
   );
+};
 
 const isValidMeals = (meals: unknown): boolean =>
   Array.isArray(meals) &&
@@ -236,7 +242,14 @@ export const addNutritionMeal = async (
         meals: [meal],
       });
     } else {
-      log.meals.push(meal);
+      const existingMeal = log.meals.find(
+        (m: any) => m.name.trim().toLowerCase() === meal.name.trim().toLowerCase()
+      );
+      if (existingMeal && Array.isArray(meal.foods)) {
+        existingMeal.foods.push(...meal.foods);
+      } else {
+        log.meals.push(meal);
+      }
       await log.save();
     }
 
@@ -266,7 +279,11 @@ export const updateNutritionMeal = async (
       return;
     }
 
-    if (!validDate(date) || !mongoose.isValidObjectId(mealId)) {
+    if (
+      !validDate(date) ||
+      typeof mealId !== "string" ||
+      !mongoose.isValidObjectId(mealId)
+    ) {
       res.status(400).json({ success: false, message: "Invalid date or meal ID" });
       return;
     }
@@ -310,7 +327,7 @@ export const updateNutritionMeal = async (
   }
 };
 
-// DELETE /api/nutrition/meal/:mealId?date=2026-10-18
+// DELETE /api/nutrition/meal/:mealId?date=2026-10-18&foodId=...
 export const deleteNutritionMeal = async (
   req: AuthRequest,
   res: Response
@@ -318,6 +335,7 @@ export const deleteNutritionMeal = async (
   try {
     const userId = getUserId(req);
     const date = req.query.date;
+    const foodId = req.query.foodId as string | undefined;
     const { mealId } = req.params;
 
     if (!userId) {
@@ -325,7 +343,11 @@ export const deleteNutritionMeal = async (
       return;
     }
 
-    if (!validDate(date) || !mongoose.isValidObjectId(mealId)) {
+    if (
+      !validDate(date) ||
+      typeof mealId !== "string" ||
+      !mongoose.isValidObjectId(mealId)
+    ) {
       res.status(400).json({ success: false, message: "Invalid date or meal ID" });
       return;
     }
@@ -348,6 +370,29 @@ export const deleteNutritionMeal = async (
       return;
     }
 
+    // If foodId is specified, delete only that specific food item from the meal
+    if (foodId) {
+      const foodItem = (meal.foods as any).id?.(foodId);
+      const exists = foodItem || meal.foods.some((f: any) => String(f._id || f.id) === foodId);
+
+      if (!exists) {
+        res.status(404).json({ success: false, message: "Food item not found in meal" });
+        return;
+      }
+
+      (meal.foods as any).pull({ _id: foodId });
+
+      // If no foods remain in the meal after removing the item, remove the meal container
+      if (meal.foods.length === 0) {
+        meal.deleteOne();
+      }
+
+      await log.save();
+      res.status(200).json({ success: true, message: "Food item deleted", log });
+      return;
+    }
+
+    // Existing contract preserved: deleting the meal removes the whole meal
     meal.deleteOne();
     await log.save();
 

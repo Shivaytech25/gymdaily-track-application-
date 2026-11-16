@@ -31,6 +31,8 @@ const measurementFields = [
   "waistCm",
   "chestCm",
   "hipsCm",
+  "armsCm",
+  "thighsCm",
 ] as const;
 
 // POST /api/body-measurements
@@ -205,7 +207,7 @@ export async function updateMeasurement(req: Request, res: Response) {
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (typeof id !== "string" || !mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid measurement ID",
@@ -306,7 +308,7 @@ export async function deleteMeasurement(req: Request, res: Response) {
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (typeof id !== "string" || !mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid measurement ID",

@@ -133,8 +133,11 @@ WorkoutSessionSchema.index({
   workoutDate: -1,
 });
 
-export default mongoose.models.WorkoutSession ||
+const WorkoutSession: mongoose.Model<IWorkoutSession> =
+  (mongoose.models.WorkoutSession as mongoose.Model<IWorkoutSession>) ||
   mongoose.model<IWorkoutSession>(
     "WorkoutSession",
     WorkoutSessionSchema
   );
+
+export default WorkoutSession;

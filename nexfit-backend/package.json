@@ -2,6 +2,7 @@
   "name": "nexfit-backend",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "NexFit fitness tracking API",
   "main": "src/server.ts",
   "scripts": {

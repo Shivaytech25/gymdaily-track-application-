@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -8,10 +10,14 @@ import {
   View,
   TouchableOpacity,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "expo-router";
 
 import { COLORS, SPACING, RADIUS, TYPOGRAPHY } from "../../constants/theme";
 import { useAuth } from "../../context/AuthContext";
 import { API_BASE_URL } from "../../services/apiConfig";
+import { fetchWorkout } from "../../services/workoutApi";
+import { createWorkoutSession } from "../../services/workoutSessionApi";
 
 type DashboardData = {
   caloriesConsumed: number;
@@ -98,18 +104,20 @@ function ProgressBar({
 }
 
 export default function HomeScreen() {
-  const { user, accessToken } = useAuth();
+  const { user, accessToken, isAuthenticated, isInitializing } = useAuth();
 
   const [isWorkoutRunning, setIsWorkoutRunning] = useState(false);
   const [workoutSeconds, setWorkoutSeconds] = useState(0);
   const [completedExercises, setCompletedExercises] = useState(0);
+  const [isSavingSession, setIsSavingSession] = useState(false);
 
   const [dashboard, setDashboard] = useState<DashboardData>(DEFAULT_DASHBOARD);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
   const [dashboardError, setDashboardError] = useState("");
 
   const loadDashboard = useCallback(async () => {
-    if (!accessToken) {
+    // If not authenticated after initialization, show default dashboard
+    if (!isAuthenticated) {
       setDashboard(DEFAULT_DASHBOARD);
       return;
     }
@@ -139,63 +147,147 @@ export default function HomeScreen() {
         throw new Error("Invalid dashboard response.");
       }
 
-      const weight = readNumber(
+      // Extract nested structures returned by backend GET /api/dashboard
+      const nutritionConsumed = payload.nutrition?.consumed;
+      const nutritionTargets = payload.nutrition?.targets;
+      const hydration = payload.hydration;
+      const body = payload.body;
+      const workout = payload.workout;
+      const weekly = payload.weeklyActivity;
+
+      const weight =
+        body?.latestMeasurement?.weightKg != null
+          ? Number(body.latestMeasurement.weightKg)
+          : readNumber(payload, ["bodyWeight", "weight", "latestWeight"], -1);
+
+      const caloriesConsumed =
+        nutritionConsumed?.calories != null
+          ? Number(nutritionConsumed.calories)
+          : readNumber(
+              payload,
+              ["caloriesConsumed", "consumedCalories", "calories"],
+              0,
+            );
+
+      const calorieGoal =
+        nutritionTargets?.calories != null
+          ? Number(nutritionTargets.calories)
+          : readNumber(
+              payload,
+              ["calorieGoal", "dailyCalorieGoal", "targetCalories"],
+              2000,
+            );
+
+      const proteinConsumed =
+        nutritionConsumed?.protein != null
+          ? Number(nutritionConsumed.protein)
+          : readNumber(payload, ["proteinConsumed", "protein"], 0);
+
+      const proteinGoal =
+        nutritionTargets?.protein != null
+          ? Number(nutritionTargets.protein)
+          : readNumber(payload, ["proteinGoal", "targetProtein"], 150);
+
+      const carbsConsumed =
+        nutritionConsumed?.carbs != null
+          ? Number(nutritionConsumed.carbs)
+          : readNumber(
+              payload,
+              ["carbsConsumed", "carbs", "carbohydrates"],
+              0,
+            );
+
+      const carbsGoal =
+        nutritionTargets?.carbs != null
+          ? Number(nutritionTargets.carbs)
+          : readNumber(
+              payload,
+              ["carbsGoal", "targetCarbs", "targetCarbohydrates"],
+              220,
+            );
+
+      const fatsConsumed =
+        nutritionConsumed?.fats != null
+          ? Number(nutritionConsumed.fats)
+          : readNumber(payload, ["fatsConsumed", "fats", "fat"], 0);
+
+      const fatsGoal =
+        nutritionTargets?.fats != null
+          ? Number(nutritionTargets.fats)
+          : readNumber(
+              payload,
+              ["fatsGoal", "targetFats", "targetFat"],
+              65,
+            );
+
+      const waterLitres =
+        hydration?.consumedMl != null
+          ? Number((hydration.consumedMl / 1000).toFixed(1))
+          : readNumber(
+              payload,
+              ["waterLitres", "waterIntakeLitres", "waterIntake"],
+              0,
+            );
+
+      const waterGoalLitres =
+        hydration?.targetMl != null
+          ? Number((hydration.targetMl / 1000).toFixed(1))
+          : readNumber(
+              payload,
+              ["waterGoalLitres", "waterGoal", "targetWater"],
+              2.5,
+            );
+
+      const activeDaysFromWeekly = Array.isArray(weekly)
+        ? weekly.filter((d: any) => d.sessions > 0).map((d: any) => d.date)
+        : [];
+
+      const activeDays =
+        activeDaysFromWeekly.length > 0
+          ? activeDaysFromWeekly
+          : Array.isArray(payload.activeDays)
+            ? payload.activeDays
+            : [];
+
+      const streakDays = readNumber(
         payload,
-        ["bodyWeight", "weight", "latestWeight"],
-        -1,
+        ["streakDays", "streak"],
+        activeDays.length,
       );
 
+      const completedExercises =
+        workout?.completedSets != null
+          ? Number(workout.completedSets)
+          : readNumber(
+              payload,
+              ["completedExercises", "exercisesCompleted"],
+              0,
+            );
+
+      const totalExercises =
+        workout?.sessions != null && workout.sessions > 0
+          ? Math.max(1, workout.sessions * 5)
+          : Math.max(
+              1,
+              readNumber(payload, ["totalExercises", "exerciseCount"], 6),
+            );
+
       setDashboard({
-        caloriesConsumed: readNumber(
-          payload,
-          ["caloriesConsumed", "consumedCalories", "calories"],
-          0,
-        ),
-        calorieGoal: readNumber(
-          payload,
-          ["calorieGoal", "dailyCalorieGoal", "targetCalories"],
-          2000,
-        ),
-        proteinConsumed: readNumber(payload, ["proteinConsumed", "protein"], 0),
-        proteinGoal: readNumber(payload, ["proteinGoal", "targetProtein"], 150),
-        carbsConsumed: readNumber(
-          payload,
-          ["carbsConsumed", "carbs", "carbohydrates"],
-          0,
-        ),
-        carbsGoal: readNumber(
-          payload,
-          ["carbsGoal", "targetCarbs", "targetCarbohydrates"],
-          220,
-        ),
-        fatsConsumed: readNumber(payload, ["fatsConsumed", "fats", "fat"], 0),
-        fatsGoal: readNumber(
-          payload,
-          ["fatsGoal", "targetFats", "targetFat"],
-          65,
-        ),
-        waterLitres: readNumber(
-          payload,
-          ["waterLitres", "waterIntakeLitres", "waterIntake"],
-          0,
-        ),
-        waterGoalLitres: readNumber(
-          payload,
-          ["waterGoalLitres", "waterGoal", "targetWater"],
-          2.5,
-        ),
+        caloriesConsumed,
+        calorieGoal,
+        proteinConsumed,
+        proteinGoal,
+        carbsConsumed,
+        carbsGoal,
+        fatsConsumed,
+        fatsGoal,
+        waterLitres,
+        waterGoalLitres,
         bodyWeight: weight >= 0 ? weight : null,
-        streakDays: readNumber(payload, ["streakDays", "streak"], 0),
-        completedExercises: readNumber(
-          payload,
-          ["completedExercises", "exercisesCompleted"],
-          0,
-        ),
-        totalExercises: Math.max(
-          1,
-          readNumber(payload, ["totalExercises", "exerciseCount"], 6),
-        ),
-        activeDays: Array.isArray(payload.activeDays) ? payload.activeDays : [],
+        streakDays,
+        completedExercises,
+        totalExercises,
+        activeDays,
       });
     } catch (error) {
       setDashboardError(
@@ -206,21 +298,222 @@ export default function HomeScreen() {
     } finally {
       setIsLoadingDashboard(false);
     }
-  }, [accessToken]);
+  }, [accessToken, isAuthenticated]);
 
+  // Wait for auth initialization, then load dashboard
   useEffect(() => {
-    void loadDashboard();
-  }, [loadDashboard]);
+    if (!isInitializing) {
+      void loadDashboard();
+    }
+  }, [isInitializing, loadDashboard]);
 
+  // Restore active workout session across tab switches
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+
+      async function restoreActiveWorkout() {
+        try {
+          const raw = await AsyncStorage.getItem("@nexfit_active_workout");
+          if (!raw) return;
+
+          const saved = JSON.parse(raw);
+          if (!isMounted) return;
+
+          if (saved.isWorkoutRunning && saved.lastTickTimestamp) {
+            const elapsed = Math.max(0, Math.floor((Date.now() - saved.lastTickTimestamp) / 1000));
+            setWorkoutSeconds((saved.workoutSeconds || 0) + elapsed);
+            setIsWorkoutRunning(true);
+          } else {
+            setWorkoutSeconds(saved.workoutSeconds || 0);
+            setIsWorkoutRunning(false);
+          }
+
+          if (typeof saved.completedExercises === "number") {
+            setCompletedExercises(saved.completedExercises);
+          }
+        } catch (e) {
+          console.warn("Failed to restore active workout:", e);
+        }
+      }
+
+      restoreActiveWorkout();
+
+      return () => {
+        isMounted = false;
+      };
+    }, [])
+  );
+
+  // Timer interval with continuous state persistence
   useEffect(() => {
     if (!isWorkoutRunning) return;
 
     const interval = setInterval(() => {
-      setWorkoutSeconds((seconds) => seconds + 1);
+      setWorkoutSeconds((prev) => {
+        const next = prev + 1;
+        AsyncStorage.setItem(
+          "@nexfit_active_workout",
+          JSON.stringify({
+            isWorkoutRunning: true,
+            workoutSeconds: next,
+            lastTickTimestamp: Date.now(),
+            completedExercises,
+          })
+        ).catch(() => {});
+        return next;
+      });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isWorkoutRunning]);
+  }, [isWorkoutRunning, completedExercises]);
+
+  const toggleWorkoutTimer = async () => {
+    const nextRunning = !isWorkoutRunning;
+    setIsWorkoutRunning(nextRunning);
+
+    try {
+      await AsyncStorage.setItem(
+        "@nexfit_active_workout",
+        JSON.stringify({
+          isWorkoutRunning: nextRunning,
+          workoutSeconds,
+          lastTickTimestamp: Date.now(),
+          completedExercises,
+        })
+      );
+    } catch {
+      // Ignore storage error
+    }
+  };
+
+  const handleCompleteExercise = async () => {
+    const nextCount = Math.min(totalExercises, (completedExercises > 0 ? completedExercises : dashboard.completedExercises) + 1);
+    setCompletedExercises(nextCount);
+
+    try {
+      await AsyncStorage.setItem(
+        "@nexfit_active_workout",
+        JSON.stringify({
+          isWorkoutRunning,
+          workoutSeconds,
+          lastTickTimestamp: Date.now(),
+          completedExercises: nextCount,
+        })
+      );
+    } catch {
+      // Ignore storage error
+    }
+  };
+
+  const handleSaveWorkoutSession = async () => {
+    if (!accessToken) {
+      Alert.alert("Login Required", "Please log in to save your workout session.");
+      return;
+    }
+
+    if (isSavingSession) return;
+
+    const durationMinutes = Math.max(1, Math.round(workoutSeconds / 60));
+    const exercisesCount = Math.max(1, completedExercises > 0 ? completedExercises : dashboard.completedExercises);
+    const estimatedCalories = Math.round(durationMinutes * 7.5);
+
+    setIsSavingSession(true);
+
+    try {
+      let sessionTitle = "Daily Workout Session";
+      let sessionExercises: Array<{
+        exerciseName: string;
+        machineName: string;
+        equipmentType?: string;
+        sets: Array<{
+          setNumber: number;
+          weightKg: number;
+          reps: number;
+          completed: boolean;
+        }>;
+      }> = [];
+
+      try {
+        const userWorkout = await fetchWorkout(accessToken);
+        if (userWorkout && Array.isArray(userWorkout.plan) && userWorkout.plan.length > 0) {
+          const firstDay: any = userWorkout.plan[0];
+          if (firstDay?.title) {
+            sessionTitle = firstDay.title;
+          }
+          if (Array.isArray(firstDay?.exercises) && firstDay.exercises.length > 0) {
+            const planExercises = firstDay.exercises.slice(0, exercisesCount);
+            sessionExercises = planExercises.map((ex: any, idx: number) => ({
+              exerciseName: ex.name || `Exercise ${idx + 1}`,
+              machineName: ex.muscle || "General",
+              equipmentType: (Array.isArray(ex.equipment) && ex.equipment[0]) || "Standard",
+              sets: Array.from({ length: Math.max(1, ex.sets || 3) }).map((_, sIdx) => ({
+                setNumber: sIdx + 1,
+                weightKg: 20,
+                reps: ex.reps || 10,
+                completed: true,
+              })),
+            }));
+          }
+        }
+      } catch {
+        // Fall back to default exercise library
+      }
+
+      if (sessionExercises.length === 0) {
+        const standardExercises = [
+          { name: "Push-ups", muscle: "Chest", reps: 12 },
+          { name: "Bodyweight Squats", muscle: "Legs", reps: 15 },
+          { name: "Plank", muscle: "Core", reps: 1 },
+          { name: "Dumbbell Rows", muscle: "Back", reps: 10 },
+          { name: "Shoulder Press", muscle: "Shoulders", reps: 10 },
+          { name: "Bicep Curls", muscle: "Arms", reps: 12 },
+        ];
+        sessionExercises = Array.from({ length: exercisesCount }).map((_, idx) => {
+          const ex = standardExercises[idx % standardExercises.length];
+          return {
+            exerciseName: ex.name,
+            machineName: ex.muscle,
+            equipmentType: "Standard",
+            sets: [
+              {
+                setNumber: 1,
+                weightKg: 20,
+                reps: ex.reps,
+                completed: true,
+              },
+            ],
+          };
+        });
+      }
+
+      await createWorkoutSession(accessToken, {
+        workoutDate: new Date().toISOString(),
+        title: sessionTitle,
+        durationMinutes,
+        caloriesBurned: estimatedCalories,
+        exercises: sessionExercises,
+      });
+
+      await AsyncStorage.removeItem("@nexfit_active_workout");
+
+      setIsWorkoutRunning(false);
+      setWorkoutSeconds(0);
+      setCompletedExercises(0);
+
+      await loadDashboard();
+
+      Alert.alert("Workout Saved", "Your workout session has been saved to MongoDB and added to your activity!");
+    } catch (error) {
+      console.warn("Failed to save workout session:", error);
+      Alert.alert(
+        "Save Failed",
+        error instanceof Error ? error.message : "Could not save workout session. Please try again."
+      );
+    } finally {
+      setIsSavingSession(false);
+    }
+  };
 
   const formatTime = (totalSeconds: number) => {
     const hours = Math.floor(totalSeconds / 3600);
@@ -238,10 +531,15 @@ export default function HomeScreen() {
       .join(":");
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     setIsWorkoutRunning(false);
     setWorkoutSeconds(0);
     setCompletedExercises(0);
+    try {
+      await AsyncStorage.removeItem("@nexfit_active_workout");
+    } catch {
+      // Ignore storage error
+    }
   };
 
   const totalExercises = Math.max(1, dashboard.totalExercises);
@@ -284,7 +582,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle="light-content" />
 
       <ScrollView
         contentContainerStyle={styles.container}
@@ -292,12 +590,12 @@ export default function HomeScreen() {
       >
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>YOUR FITNESS JOURNEY</Text>
-            <Text style={styles.title}>
+            <Text style={styles.greeting}>
               {user?.name
                 ? `Let's get stronger, ${user.name.split(" ")[0]}.`
                 : "Let's get stronger."}
             </Text>
+            <Text style={styles.title}>YOUR FITNESS JOURNEY</Text>
           </View>
 
           <View style={styles.avatar}>
@@ -358,7 +656,9 @@ export default function HomeScreen() {
             </View>
 
             <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatValue}>{dashboard.streakDays}</Text>
+              <Text style={styles.heroStatValue}>
+                {dashboard.streakDays}
+              </Text>
               <Text style={styles.heroStatLabel}>STREAK DAYS</Text>
             </View>
           </View>
@@ -380,7 +680,7 @@ export default function HomeScreen() {
           <TouchableOpacity
             activeOpacity={0.8}
             style={styles.primaryButton}
-            onPress={() => setIsWorkoutRunning((running) => !running)}
+            onPress={toggleWorkoutTimer}
           >
             <Text style={styles.primaryButtonText}>
               {isWorkoutRunning ? "Ⅱ  PAUSE WORKOUT" : "▶  START WORKOUT"}
@@ -390,11 +690,7 @@ export default function HomeScreen() {
           <TouchableOpacity
             activeOpacity={0.8}
             style={styles.secondaryButton}
-            onPress={() =>
-              setCompletedExercises((count) =>
-                Math.min(totalExercises, count + 1),
-              )
-            }
+            onPress={handleCompleteExercise}
             disabled={displayedCompletedExercises >= totalExercises}
           >
             <Text
@@ -409,6 +705,31 @@ export default function HomeScreen() {
                 : "+  COMPLETE EXERCISE"}
             </Text>
           </TouchableOpacity>
+
+          {(workoutSeconds > 0 || displayedCompletedExercises > 0) && (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={[
+                styles.primaryButton,
+                {
+                  marginTop: 10,
+                  backgroundColor: COLORS.surfaceElevated,
+                  borderWidth: 1,
+                  borderColor: COLORS.primary,
+                },
+              ]}
+              onPress={handleSaveWorkoutSession}
+              disabled={isSavingSession}
+            >
+              {isSavingSession ? (
+                <ActivityIndicator size="small" color={COLORS.primary} />
+              ) : (
+                <Text style={[styles.primaryButtonText, { color: COLORS.primary }]}>
+                  💾  FINISH & SAVE SESSION
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity
             activeOpacity={0.7}
@@ -454,8 +775,7 @@ export default function HomeScreen() {
               {Math.max(
                 0,
                 Math.round(dashboard.calorieGoal - dashboard.caloriesConsumed),
-              ).toLocaleString()}{" "}
-              kcal remaining
+              ).toLocaleString()}{" "}kcal remaining
             </Text>
           </View>
 
@@ -578,7 +898,9 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.footer}>NEXFIT · BUILD YOUR BEST</Text>
+        <Text style={styles.footer}>
+          NEXFIT · BUILD YOUR BEST
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );

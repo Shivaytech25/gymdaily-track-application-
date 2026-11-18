@@ -6,6 +6,7 @@ import WorkoutPlan from "../models/WorkoutPlan";
 import NutritionLog from "../models/NutritionLog";
 import WaterLog from "../models/WaterLog";
 import BodyMeasurement from "../models/BodyMeasurement";
+import User from "../models/User";
 
 function getUserId(req: Request): string | null {
   const userId = (req as Request & { userId?: string }).userId;
@@ -75,6 +76,7 @@ export async function getDashboard(req: Request, res: Response) {
       workoutPlan,
       allUserSessions,
       lastPrevSession,
+      userDoc,
     ] = await Promise.all([
       WorkoutSession.find({
         userId,
@@ -114,6 +116,8 @@ export async function getDashboard(req: Request, res: Response) {
         .sort({ workoutDate: -1 })
         .select("workoutDate")
         .lean(),
+
+      User.findById(userId).select("nutritionTargets").lean(),
     ]);
 
     // 1. Calculate Real Workout Streak based on actual records
@@ -247,7 +251,7 @@ export async function getDashboard(req: Request, res: Response) {
       { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 }
     );
 
-    const dailyTargets = nutrition?.dailyTargets ?? {
+    const dailyTargets = nutrition?.dailyTargets ?? (userDoc as any)?.nutritionTargets ?? {
       calories: 2000,
       protein: 100,
       carbs: 250,

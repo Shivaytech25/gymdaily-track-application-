@@ -14,6 +14,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "expo-router";
 
 import { COLORS, SPACING, RADIUS, TYPOGRAPHY } from "../../constants/theme";
+import { getWeekdayWorkoutIndex } from "../../constants/workouts";
 import { useAuth } from "../../context/AuthContext";
 import { API_BASE_URL } from "../../services/apiConfig";
 import { fetchWorkout } from "../../services/workoutApi";
@@ -288,8 +289,16 @@ export default function HomeScreen() {
               2.5,
             );
 
-      const activeDaysFromWeekly = Array.isArray(weekly)
-        ? weekly.filter((d: any) => d.sessions > 0).map((d: any) => d.date)
+      const activeDaysFromWeekly: number[] = Array.isArray(weekly)
+        ? weekly
+            .filter((d: any) => d.sessions > 0)
+            .map((d: any) => {
+              if (typeof d.date === "string") {
+                return getWeekdayWorkoutIndex(d.date);
+              }
+              return -1;
+            })
+            .filter((idx: number) => idx >= 0)
         : [];
 
       const activeDays =
@@ -461,6 +470,14 @@ export default function HomeScreen() {
   }, [isWorkoutRunning, completedExercises]);
 
   const toggleWorkoutTimer = async () => {
+    if (dashboard.workoutStatus === "completed") {
+      Alert.alert(
+        "Workout Completed",
+        "Today's workout session has already been completed. Starting a new session is available tomorrow."
+      );
+      return;
+    }
+
     const nextRunning = !isWorkoutRunning;
     setIsWorkoutRunning(nextRunning);
 
@@ -518,7 +535,9 @@ export default function HomeScreen() {
       try {
         const userPlan = await fetchWorkout(accessToken);
         if (userPlan && Array.isArray(userPlan.plan) && userPlan.plan.length > 0) {
-          const exList = (userPlan.plan[0] as any)?.exercises || [];
+          const todayIdx = getWeekdayWorkoutIndex();
+          const todayPlanDay = userPlan.plan[todayIdx] || userPlan.plan[0];
+          const exList = (todayPlanDay as any)?.exercises || [];
           if (exList[currentCount]) {
             exerciseName = exList[currentCount].name || exerciseName;
             category = exList[currentCount].muscle || category;
@@ -655,7 +674,7 @@ export default function HomeScreen() {
       ? (dashboard.waterLitres / dashboard.waterGoalLitres) * 100
       : 0;
 
-  const todayIndex = (new Date().getDay() + 6) % 7;
+  const todayIndex = getWeekdayWorkoutIndex();
   const weekDayLabels = ["M", "T", "W", "T", "F", "S", "S"];
 
   return (
@@ -812,67 +831,83 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          <TouchableOpacity
-            activeOpacity={0.8}
-            style={styles.primaryButton}
-            onPress={toggleWorkoutTimer}
-          >
-            <Text style={styles.primaryButtonText}>
-              {isWorkoutRunning ? "Ⅱ  PAUSE WORKOUT" : "▶  START WORKOUT"}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.8}
-            style={styles.secondaryButton}
-            onPress={handleCompleteExercise}
-            disabled={displayedCompletedExercises >= totalExercises}
-          >
-            <Text
-              style={[
-                styles.secondaryButtonText,
-                displayedCompletedExercises >= totalExercises &&
-                  styles.disabledButtonText,
-              ]}
-            >
-              {displayedCompletedExercises >= totalExercises
-                ? "✓  ALL EXERCISES COMPLETED"
-                : "+  COMPLETE EXERCISE"}
-            </Text>
-          </TouchableOpacity>
-
-          {(workoutSeconds > 0 || displayedCompletedExercises > 0) && (
-            <TouchableOpacity
-              activeOpacity={0.8}
-              style={[
-                styles.primaryButton,
-                {
-                  marginTop: 10,
-                  backgroundColor: COLORS.surfaceElevated,
-                  borderWidth: 1,
-                  borderColor: COLORS.primary,
-                },
-              ]}
-              onPress={handleSaveWorkoutSession}
-              disabled={isSavingSession}
-            >
-              {isSavingSession ? (
-                <ActivityIndicator size="small" color={COLORS.primary} />
-              ) : (
-                <Text style={[styles.primaryButtonText, { color: COLORS.primary }]}>
-                  💾  FINISH & SAVE SESSION
+          {dashboard.workoutStatus === "completed" && !isWorkoutRunning ? (
+            <View style={styles.completedBanner}>
+              <View style={styles.completedBannerBadge}>
+                <Text style={styles.completedBannerCheck}>✓</Text>
+              </View>
+              <View style={styles.completedBannerTextWrap}>
+                <Text style={styles.completedBannerTitle}>TODAY'S WORKOUT COMPLETED</Text>
+                <Text style={styles.completedBannerSubtitle}>
+                  Great work! Your session has been finished and saved.
                 </Text>
-              )}
-            </TouchableOpacity>
-          )}
+              </View>
+            </View>
+          ) : (
+            <>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={styles.primaryButton}
+                onPress={toggleWorkoutTimer}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {isWorkoutRunning ? "Ⅱ  PAUSE WORKOUT" : "▶  START WORKOUT"}
+                </Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            activeOpacity={0.7}
-            style={styles.resetButton}
-            onPress={handleReset}
-          >
-            <Text style={styles.resetButtonText}>RESET WORKOUT</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={styles.secondaryButton}
+                onPress={handleCompleteExercise}
+                disabled={displayedCompletedExercises >= totalExercises}
+              >
+                <Text
+                  style={[
+                    styles.secondaryButtonText,
+                    displayedCompletedExercises >= totalExercises &&
+                      styles.disabledButtonText,
+                  ]}
+                >
+                  {displayedCompletedExercises >= totalExercises
+                    ? "✓  ALL EXERCISES COMPLETED"
+                    : "+  COMPLETE EXERCISE"}
+                </Text>
+              </TouchableOpacity>
+
+              {(workoutSeconds > 0 || displayedCompletedExercises > 0) && (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  style={[
+                    styles.primaryButton,
+                    {
+                      marginTop: 10,
+                      backgroundColor: COLORS.surfaceElevated,
+                      borderWidth: 1,
+                      borderColor: COLORS.primary,
+                    },
+                  ]}
+                  onPress={handleSaveWorkoutSession}
+                  disabled={isSavingSession}
+                >
+                  {isSavingSession ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <Text style={[styles.primaryButtonText, { color: COLORS.primary }]}>
+                      💾  FINISH & SAVE SESSION
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                style={styles.resetButton}
+                onPress={handleReset}
+              >
+                <Text style={styles.resetButtonText}>RESET WORKOUT</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
         <View style={styles.sectionHeader}>
@@ -1197,6 +1232,44 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginTop: SPACING.xl,
+  },
+  completedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(198, 255, 77, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(198, 255, 77, 0.35)",
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginTop: SPACING.lg,
+    gap: SPACING.md,
+  },
+  completedBannerBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  completedBannerCheck: {
+    color: COLORS.background,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  completedBannerTextWrap: {
+    flex: 1,
+  },
+  completedBannerTitle: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  completedBannerSubtitle: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    marginTop: 2,
   },
   primaryButtonText: {
     color: COLORS.background,

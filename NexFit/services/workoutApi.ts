@@ -104,3 +104,102 @@ export async function updateCompletedExercises(
 
   return data.workout;
 }
+
+export interface CustomExerciseItem {
+  _id: string;
+  name: string;
+  muscle: string;
+  category?: string;
+  sets: number;
+  reps: number;
+  durationSeconds?: number;
+  equipment?: string[];
+  isCustom?: boolean;
+  notes?: string;
+}
+
+export async function fetchCustomExercises(
+  token: string
+): Promise<CustomExerciseItem[]> {
+  const data = await request<{ success: boolean; data?: CustomExerciseItem[]; exercises?: CustomExerciseItem[] }>(
+    "/workouts/custom-exercises",
+    token,
+    { method: "GET" }
+  );
+
+  return data.data ?? data.exercises ?? [];
+}
+
+export async function createCustomExercise(
+  token: string,
+  exerciseData: {
+    name: string;
+    muscle: string;
+    category?: string;
+    sets: number;
+    reps: number;
+    durationSeconds?: number;
+    equipment?: string[];
+    notes?: string;
+  }
+): Promise<CustomExerciseItem> {
+  const data = await request<{ success: boolean; exercise?: CustomExerciseItem; data?: CustomExerciseItem }>(
+    "/workouts/custom-exercises",
+    token,
+    {
+      method: "POST",
+      body: JSON.stringify(exerciseData),
+    }
+  );
+
+  const created = data.exercise ?? data.data;
+  if (!created) {
+    throw new Error("Failed to create custom exercise");
+  }
+  return created;
+}
+
+export async function updateCustomExercise(
+  token: string,
+  id: string,
+  exerciseData: Partial<{
+    name: string;
+    muscle: string;
+    category?: string;
+    sets: number;
+    reps: number;
+    durationSeconds?: number;
+    equipment?: string[];
+    notes?: string;
+  }>
+): Promise<CustomExerciseItem> {
+  const data = await request<{ success: boolean; exercise?: CustomExerciseItem; data?: CustomExerciseItem }>(
+    `/workouts/custom-exercises/${id}`,
+    token,
+    {
+      method: "PUT",
+      body: JSON.stringify(exerciseData),
+    }
+  );
+
+  const updated = data.exercise ?? data.data;
+  if (!updated) {
+    throw new Error("Failed to update custom exercise");
+  }
+  return updated;
+}
+
+export async function deleteCustomExercise(
+  token: string,
+  id: string
+): Promise<boolean> {
+  const data = await request<{ success: boolean; message?: string }>(
+    `/workouts/custom-exercises/${id}`,
+    token,
+    {
+      method: "DELETE",
+    }
+  );
+
+  return data.success;
+}

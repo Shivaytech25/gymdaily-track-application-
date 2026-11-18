@@ -9,6 +9,12 @@ import {
   startWorkoutSession,
 } from "../controllers/workoutSessionController";
 import { getWorkoutHistory } from "../controllers/workoutHistoryController";
+import {
+  getCustomExercises,
+  createCustomExercise,
+  updateCustomExercise,
+  deleteCustomExercise,
+} from "../controllers/customExerciseController";
 
 const router = Router();
 
@@ -23,37 +29,41 @@ const authenticate = (
 ) => {
   const authorization = req.headers.authorization;
   const token = authorization?.startsWith("Bearer ")
-    ? authorization.slice(7)
+    ? authorization.slice(7).trim()
     : null;
 
   if (!token) {
-    return res.status(401).json({ message: "Authentication token required" });
+    return res.status(401).json({ success: false, message: "Authentication token required" });
   }
 
   const secret = process.env.JWT_SECRET;
 
   if (!secret) {
-    return res.status(500).json({ message: "JWT_SECRET is not configured" });
+    return res.status(500).json({ success: false, message: "JWT_SECRET is not configured" });
   }
 
   try {
     const decoded = jwt.verify(token, secret);
 
     if (typeof decoded === "string") {
-      return res.status(401).json({ message: "Invalid token payload" });
+      return res.status(401).json({ success: false, message: "Invalid token payload" });
     }
 
     const payload = decoded as jwt.JwtPayload;
     const id = payload.userId ?? payload.id ?? payload._id ?? payload.sub;
 
     if (!id || !mongoose.isValidObjectId(id)) {
-      return res.status(401).json({ message: "Invalid user in token" });
+      return res.status(401).json({ success: false, message: "Invalid user in token" });
     }
 
     req.userId = id;
+    (req as any).user = { id, _id: id };
     next();
-  } catch {
-    return res.status(401).json({ message: "Invalid or expired token" });
+  } catch (err: any) {
+    if (err?.name === "TokenExpiredError") {
+      return res.status(401).json({ success: false, message: "Session expired. Please sign in again.", expired: true });
+    }
+    return res.status(401).json({ success: false, message: "Invalid or expired token" });
   }
 };
 
@@ -87,7 +97,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response) => {
       !Number.isInteger(preferences.daysPerWeek) ||
       !Number.isFinite(preferences.duration) ||
       preferences.daysPerWeek < 1 ||
-      preferences.daysPerWeek > 6 ||
+      preferences.daysPerWeek > 7 ||
       preferences.duration < 10 ||
       preferences.duration > 180
     ) {
@@ -96,17 +106,37 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response) => {
       });
     }
 
+    const existing = await WorkoutPlan.findOne({ userId: req.userId });
+    const updateOps: any = {
+      $set: {
+        preferences,
+        plan,
+      },
+    };
+
+    if (
+      existing?.preferences &&
+      JSON.stringify(existing.preferences) !== JSON.stringify(preferences)
+    ) {
+      updateOps.$push = {
+        preferenceHistory: {
+          preferences: existing.preferences,
+          effectiveDate: new Date(),
+          createdAt: new Date(),
+        },
+      };
+    }
+
+    if (Array.isArray(completedExercises) && completedExercises.length > 0) {
+      updateOps.$set.completedExercises = completedExercises;
+    } else if (existing?.completedExercises && existing.completedExercises.length > 0) {
+      // Preserve existing completed exercises
+      updateOps.$set.completedExercises = existing.completedExercises;
+    }
+
     const workout = await WorkoutPlan.findOneAndUpdate(
       { userId: req.userId },
-      {
-        $set: {
-          preferences,
-          plan,
-          ...(Array.isArray(completedExercises)
-            ? { completedExercises }
-            : {}),
-        },
-      },
+      updateOps,
       {
         new: true,
         upsert: true,
@@ -174,5 +204,12 @@ router.post("/start", authenticate, startWorkoutSession);
 router.post("/complete-exercise", authenticate, completeExercise);
 router.post("/complete-session", authenticate, completeSession);
 router.get("/history", authenticate, getWorkoutHistory);
+
+// Custom exercises routes
+router.get("/custom-exercises", authenticate, getCustomExercises);
+router.post("/custom-exercises", authenticate, createCustomExercise);
+router.put("/custom-exercises/:id", authenticate, updateCustomExercise);
+router.patch("/custom-exercises/:id", authenticate, updateCustomExercise);
+router.delete("/custom-exercises/:id", authenticate, deleteCustomExercise);
 
 export default router;

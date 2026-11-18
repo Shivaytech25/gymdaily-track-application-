@@ -213,3 +213,152 @@ export async function deleteNutritionMeal(
     { method: "DELETE" },
   );
 }
+
+export interface CustomFoodItem {
+  _id: string;
+  name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fats: number;
+  fiber?: number;
+  servingSize: number;
+  servingUnit: string;
+  isCustom?: boolean;
+}
+
+/** Fetch user's custom food items. */
+export async function fetchCustomFoods(token: string): Promise<CustomFoodItem[]> {
+  const result = await request<{ success: boolean; data?: CustomFoodItem[]; foods?: CustomFoodItem[] }>(
+    "/nutrition/custom-foods",
+    token,
+    { method: "GET" }
+  );
+
+  return result.data ?? result.foods ?? [];
+}
+
+/** Create a new custom food item. */
+export async function createCustomFood(
+  token: string,
+  food: {
+    name: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fats: number;
+    fiber?: number;
+    servingSize: number;
+    servingUnit: string;
+  }
+): Promise<CustomFoodItem> {
+  const result = await request<{ success: boolean; food?: CustomFoodItem; data?: CustomFoodItem }>(
+    "/nutrition/custom-foods",
+    token,
+    {
+      method: "POST",
+      body: JSON.stringify(food),
+    }
+  );
+
+  const created = result.food ?? result.data;
+  if (!created) {
+    throw new Error("Failed to create custom food");
+  }
+  return created;
+}
+
+/** Update an existing custom food item. */
+export async function updateCustomFood(
+  token: string,
+  id: string,
+  food: Partial<{
+    name: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fats: number;
+    fiber?: number;
+    servingSize: number;
+    servingUnit: string;
+  }>
+): Promise<CustomFoodItem> {
+  const result = await request<{ success: boolean; food?: CustomFoodItem; data?: CustomFoodItem }>(
+    `/nutrition/custom-foods/${encodeURIComponent(id)}`,
+    token,
+    {
+      method: "PUT",
+      body: JSON.stringify(food),
+    }
+  );
+
+  const updated = result.food ?? result.data;
+  if (!updated) {
+    throw new Error("Failed to update custom food");
+  }
+  return updated;
+}
+
+/** Delete a custom food item. */
+export async function deleteCustomFood(
+  token: string,
+  id: string
+): Promise<boolean> {
+  const result = await request<{ success: boolean; message?: string }>(
+    `/nutrition/custom-foods/${encodeURIComponent(id)}`,
+    token,
+    {
+      method: "DELETE",
+    }
+  );
+
+  return result.success;
+}
+
+/** Get personalized nutrition targets. */
+export async function fetchNutritionTargets(token: string): Promise<NutritionTargets> {
+  const result = await request<{ success: boolean; targets?: NutritionTargets; data?: NutritionTargets }>(
+    "/nutrition/targets",
+    token,
+    { method: "GET" }
+  );
+
+  return (
+    result.targets ??
+    result.data ?? {
+      calories: 2000,
+      protein: 100,
+      carbs: 250,
+      fats: 65,
+      fiber: 25,
+    }
+  );
+}
+
+/** Update personalized nutrition targets. */
+export async function updateNutritionTargets(
+  token: string,
+  targets: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fats: number;
+    fiber?: number;
+  },
+  date?: string
+): Promise<NutritionTargets> {
+  const result = await request<{ success: boolean; targets?: NutritionTargets; data?: NutritionTargets }>(
+    "/nutrition/targets",
+    token,
+    {
+      method: "PUT",
+      body: JSON.stringify({ ...targets, date }),
+    }
+  );
+
+  const updated = result.targets ?? result.data;
+  if (!updated) {
+    throw new Error("Failed to update nutrition targets");
+  }
+  return updated;
+}

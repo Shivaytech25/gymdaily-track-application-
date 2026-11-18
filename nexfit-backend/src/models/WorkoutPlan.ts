@@ -11,6 +11,18 @@ export interface IWorkoutPlan extends Document {
     duration: number;
     mode: string;
   };
+  preferenceHistory?: Array<{
+    preferences: {
+      goal: string;
+      level: string;
+      location: string;
+      daysPerWeek: number;
+      duration: number;
+      mode: string;
+    };
+    effectiveDate: Date;
+    createdAt: Date;
+  }>;
   plan: unknown[];
   completedExercises: string[];
   createdAt: Date;
@@ -32,6 +44,16 @@ const WorkoutPlanSchema = new Schema<IWorkoutPlan>(
       daysPerWeek: { type: Number, required: true },
       duration: { type: Number, required: true },
       mode: { type: String, required: true },
+    },
+    preferenceHistory: {
+      type: [
+        {
+          preferences: { type: Schema.Types.Mixed, required: true },
+          effectiveDate: { type: Date, default: Date.now },
+          createdAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
     },
     plan: {
       type: [Schema.Types.Mixed],

@@ -12,6 +12,7 @@ export interface WorkoutSet {
 
 export interface WorkoutExercise {
   _id?: string;
+  exerciseId?: string;
   exerciseName: string;
   machineName: string;
   equipmentType?: string;

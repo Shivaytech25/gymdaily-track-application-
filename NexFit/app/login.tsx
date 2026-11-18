@@ -86,7 +86,7 @@ export default function LoginScreen() {
         return;
       }
 
-      signIn(accessToken, user);
+      await signIn(accessToken, user);
       router.replace("/(tabs)");
     } catch {
       setError("Cannot connect to NexFit. Check your connection and API URL.");

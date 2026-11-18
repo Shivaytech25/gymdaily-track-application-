@@ -33,6 +33,13 @@ export interface IUser extends Document {
   experienceLevel: ExperienceLevel;
   workoutDaysPerWeek: number;
   dietPreference: DietPreference;
+  nutritionTargets?: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fats: number;
+    fiber?: number;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -135,6 +142,14 @@ const userSchema = new Schema<IUser>(
       ],
       default: 'other',
       required: true,
+    },
+
+    nutritionTargets: {
+      calories: { type: Number, min: 0, default: 2000 },
+      protein: { type: Number, min: 0, default: 100 },
+      carbs: { type: Number, min: 0, default: 250 },
+      fats: { type: Number, min: 0, default: 65 },
+      fiber: { type: Number, min: 0, default: 25 },
     },
   },
   {

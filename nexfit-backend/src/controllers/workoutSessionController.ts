@@ -440,7 +440,15 @@ export const startWorkoutSession = async (
         durationMinutes: 0,
         caloriesBurned: 0,
       });
-    } else if (session.status !== "completed") {
+    } else if (session.status === "completed") {
+      res.status(200).json({
+        success: true,
+        message: "Workout session already completed for this date",
+        alreadyCompleted: true,
+        session,
+      });
+      return;
+    } else {
       session.status = "in_progress";
       if (!session.startedAt) session.startedAt = new Date();
       await session.save();

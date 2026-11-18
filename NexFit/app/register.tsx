@@ -116,7 +116,7 @@ export default function RegisterScreen() {
       const user = data.user;
 
       if (accessToken && user) {
-        signIn(accessToken, user);
+        await signIn(accessToken, user);
         router.replace("/(tabs)");
         return;
       }

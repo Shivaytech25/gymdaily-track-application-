@@ -28,6 +28,8 @@ export type Exercise = {
 export type WorkoutDay = {
   id: string;
   title: string;
+  dayName?: string;
+  weekdayIndex?: number;
   focus: string;
   exercises: Exercise[];
 };
@@ -189,14 +191,60 @@ const EXERCISES: Exercise[] = [
   },
 ];
 
-const DAY_TEMPLATES = [
-  { title: "Day 1", focus: "Upper Body" },
-  { title: "Day 2", focus: "Lower Body" },
-  { title: "Day 3", focus: "Full Body" },
-  { title: "Day 4", focus: "Upper Body" },
-  { title: "Day 5", focus: "Lower Body" },
-  { title: "Day 6", focus: "Full Body" },
+export const WEEKDAY_WORKOUT_TEMPLATES = [
+  { dayIndex: 0, dayNumber: 1, dayName: "Monday", title: "Day 1", focus: "Chest & Triceps" },
+  { dayIndex: 1, dayNumber: 2, dayName: "Tuesday", title: "Day 2", focus: "Back & Biceps" },
+  { dayIndex: 2, dayNumber: 3, dayName: "Wednesday", title: "Day 3", focus: "Legs & Core" },
+  { dayIndex: 3, dayNumber: 4, dayName: "Thursday", title: "Day 4", focus: "Shoulders & Core" },
+  { dayIndex: 4, dayNumber: 5, dayName: "Friday", title: "Day 5", focus: "Full Body Power" },
+  { dayIndex: 5, dayNumber: 6, dayName: "Saturday", title: "Day 6", focus: "Conditioning & Core" },
+  { dayIndex: 6, dayNumber: 7, dayName: "Sunday", title: "Day 7", focus: "Full Body & Mobility" },
 ];
+
+/**
+ * Weekday to workout day mapping:
+ * Monday -> Day 1 (index 0)
+ * Tuesday -> Day 2 (index 1)
+ * Wednesday -> Day 3 (index 2)
+ * Thursday -> Day 4 (index 3)
+ * Friday -> Day 5 (index 4)
+ * Saturday -> Day 6 (index 5)
+ * Sunday -> Day 7 (index 6)
+ */
+export function getWeekdayWorkoutIndex(dateInput?: Date | string): number {
+  let dayOfWeek: number;
+  if (!dateInput) {
+    dayOfWeek = new Date().getDay();
+  } else if (typeof dateInput === "string") {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+      const [y, m, d] = dateInput.split("-").map(Number);
+      dayOfWeek = new Date(y, m - 1, d).getDay();
+    } else {
+      const parsed = new Date(dateInput);
+      dayOfWeek = !isNaN(parsed.getTime()) ? parsed.getDay() : new Date().getDay();
+    }
+  } else if (dateInput instanceof Date && !isNaN(dateInput.getTime())) {
+    dayOfWeek = dateInput.getDay();
+  } else {
+    dayOfWeek = new Date().getDay();
+  }
+
+  // Monday = 1 -> 0 (Day 1)
+  // Tuesday = 2 -> 1 (Day 2)
+  // Wednesday = 3 -> 2 (Day 3)
+  // Thursday = 4 -> 3 (Day 4)
+  // Friday = 5 -> 4 (Day 5)
+  // Saturday = 6 -> 5 (Day 6)
+  // Sunday = 0 -> 6 (Day 7)
+  return (dayOfWeek + 6) % 7;
+}
+
+/**
+ * Returns 1-based workout day number (1 for Monday through 7 for Sunday).
+ */
+export function getWorkoutDayNumber(dateInput?: Date | string): number {
+  return getWeekdayWorkoutIndex(dateInput) + 1;
+}
 
 export function getExerciseLibrary(): Exercise[] {
   return EXERCISES.map((exercise) => ({ ...exercise }));
@@ -212,60 +260,56 @@ export function generateWorkoutPlan(
   );
 
   const byFocus: Record<string, string[]> = {
-    "Upper Body": ["Chest", "Back", "Shoulders", "Arms"],
-    "Lower Body": ["Legs", "Glutes"],
-    "Full Body": ["Chest", "Back", "Legs", "Core", "Full Body", "Arms"],
+    "Full Body & Mobility": ["Full Body", "Core", "Legs", "Chest"],
+    "Chest & Triceps": ["Chest", "Arms", "Shoulders"],
+    "Back & Biceps": ["Back", "Arms", "Core"],
+    "Legs & Core": ["Legs", "Glutes", "Core"],
+    "Shoulders & Core": ["Shoulders", "Chest", "Core", "Arms"],
+    "Full Body Power": ["Legs", "Chest", "Back", "Glutes", "Full Body"],
+    "Conditioning & Core": ["Full Body", "Core", "Legs"],
   };
 
-  const used = new Set<string>();
+  const exerciseCount =
+    preferences.durationMinutes <= 30 ? 3 : preferences.durationMinutes <= 45 ? 4 : 5;
 
-  return DAY_TEMPLATES.slice(0, preferences.daysPerWeek).map(
-    (template, dayIndex) => {
-      const focusMuscles = byFocus[template.focus] ?? [];
+  return WEEKDAY_WORKOUT_TEMPLATES.map((template) => {
+    const focusMuscles = byFocus[template.focus] ?? ["Full Body"];
 
-      let candidates = eligible.filter(
-        (exercise) =>
-          focusMuscles.includes(exercise.muscle) &&
-          !used.has(exercise.id)
+    let candidates = eligible.filter((exercise) =>
+      focusMuscles.includes(exercise.muscle)
+    );
+
+    if (candidates.length < 3) {
+      const additional = eligible.filter(
+        (exercise) => !candidates.some((item) => item.id === exercise.id)
       );
+      candidates = [...candidates, ...additional];
+    }
 
-      if (candidates.length < 3) {
-        const additional = eligible.filter(
-          (exercise) =>
-            !used.has(exercise.id) &&
-            !candidates.some((item) => item.id === exercise.id)
-        );
-        candidates = [...candidates, ...additional];
-      }
-
-      const exerciseCount =
-        preferences.durationMinutes <= 30 ? 3 : preferences.durationMinutes <= 45 ? 4 : 5;
-
-      const selected = candidates.slice(0, exerciseCount).map((exercise) => {
-        used.add(exercise.id);
-
-        const levelMultiplier =
-          preferences.level === "beginner"
-            ? 1
-            : preferences.level === "intermediate"
-              ? 1.15
-              : 1.25;
-
-        return {
-          ...exercise,
-          sets:
-            preferences.level === "beginner"
-              ? 2
-              : Math.min(5, Math.round(exercise.sets * levelMultiplier)),
-        };
-      });
+    const selected = candidates.slice(0, exerciseCount).map((exercise) => {
+      const levelMultiplier =
+        preferences.level === "beginner"
+          ? 1
+          : preferences.level === "intermediate"
+            ? 1.15
+            : 1.25;
 
       return {
-        id: `day-${dayIndex + 1}`,
-        title: template.title,
-        focus: template.focus,
-        exercises: selected,
+        ...exercise,
+        sets:
+          preferences.level === "beginner"
+            ? 2
+            : Math.min(5, Math.round(exercise.sets * levelMultiplier)),
       };
-    }
-  );
+    });
+
+    return {
+      id: `day-${template.dayIndex}`,
+      title: template.title,
+      dayName: template.dayName,
+      weekdayIndex: template.dayIndex,
+      focus: template.focus,
+      exercises: selected,
+    };
+  });
 }

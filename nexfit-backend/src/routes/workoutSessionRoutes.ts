@@ -13,6 +13,12 @@ import {
   completeExercise,
   completeSession,
 } from "../controllers/workoutSessionController";
+import {
+  getCustomExercises,
+  createCustomExercise,
+  updateCustomExercise,
+  deleteCustomExercise,
+} from "../controllers/customExerciseController";
 
 const router = Router();
 
@@ -82,5 +88,11 @@ router.get("/", authenticate, getWorkoutSessions);
 router.get("/date/:date", authenticate, getWorkoutSessionsByDate);
 router.patch("/:id", authenticate, updateWorkoutSession);
 router.delete("/:id", authenticate, deleteWorkoutSession);
+
+router.get("/custom-exercises", authenticate, getCustomExercises);
+router.post("/custom-exercises", authenticate, createCustomExercise);
+router.put("/custom-exercises/:id", authenticate, updateCustomExercise);
+router.patch("/custom-exercises/:id", authenticate, updateCustomExercise);
+router.delete("/custom-exercises/:id", authenticate, deleteCustomExercise);
 
 export default router;

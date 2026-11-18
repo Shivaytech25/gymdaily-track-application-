@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt, { SignOptions } from 'jsonwebtoken';
 
 const SALT_ROUNDS = 12;
-const ACCESS_TOKEN_EXPIRY = '15m';
+const ACCESS_TOKEN_EXPIRY = '30d';
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;

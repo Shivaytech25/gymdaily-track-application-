@@ -1,16 +1,26 @@
 
 import { Platform } from "react-native";
+import Constants from "expo-constants";
 
-const ANDROID_API_URL = "http://10.0.2.2:5000/api";
-const IOS_API_URL = "http://localhost:5000/api";
-const WEB_API_URL = "http://localhost:5000/api";
-const DEVICE_API_URL = "http://192.168.1.10:5000/api";
+function getBaseUrl(): string {
+  // If running in Expo (development server / Expo Go), extract the host IP dynamically
+  const hostUri =
+    Constants.expoConfig?.hostUri ||
+    (Constants as any).manifest?.debuggerHost ||
+    (Constants as any).manifest2?.extra?.expoGo?.debuggerHost;
 
-export const API_BASE_URL =
-  Platform.OS === "android"
-    ? ANDROID_API_URL
-    : Platform.OS === "ios"
-      ? IOS_API_URL
-      : Platform.OS === "web"
-        ? WEB_API_URL
-        : DEVICE_API_URL;
+  if (hostUri) {
+    const host = hostUri.split(":")[0];
+    if (host && host !== "localhost" && host !== "127.0.0.1") {
+      return `http://${host}:5000/api`;
+    }
+  }
+
+  if (Platform.OS === "android") {
+    return "http://10.0.2.2:5000/api";
+  }
+
+  return "http://localhost:5000/api";
+}
+
+export const API_BASE_URL = getBaseUrl();

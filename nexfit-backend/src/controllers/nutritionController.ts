@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import NutritionLog from "../models/NutritionLog";
+import User from "../models/User";
 
 interface AuthRequest extends Request {
   userId?: string;
@@ -57,8 +58,10 @@ const isValidMeals = (meals: unknown): boolean =>
       )
   );
 
-const getUserId = (req: AuthRequest): string | null =>
-  req.userId && mongoose.isValidObjectId(req.userId) ? req.userId : null;
+const getUserId = (req: any): string | null => {
+  const id = req.userId ?? req.user?.id ?? req.user?._id;
+  return id && mongoose.isValidObjectId(id) ? String(id) : null;
+};
 
 // GET /api/nutrition?date=2026-10-18
 export const getNutritionLog = async (
@@ -103,18 +106,22 @@ export const getNutritionLog = async (
       { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 }
     );
 
+    const user = await User.findById(userId).select("nutritionTargets").lean();
+    const userTargets = (user as any)?.nutritionTargets;
+    const targets = log?.dailyTargets ?? userTargets ?? {
+      calories: 2000,
+      protein: 100,
+      carbs: 250,
+      fats: 65,
+      fiber: 25,
+    };
+
     res.status(200).json({
       success: true,
       date,
       log,
       totals,
-      targets: log?.dailyTargets ?? {
-        calories: 2000,
-        protein: 100,
-        carbs: 250,
-        fats: 65,
-        fiber: 25,
-      },
+      targets,
     });
   } catch (error) {
     console.error("Get nutrition log error:", error);
@@ -210,8 +217,25 @@ export const addNutritionMeal = async (
 ): Promise<void> => {
   try {
     const userId = getUserId(req);
-    const date = req.query.date;
-    const meal = req.body;
+    const date = (req.query.date as string) || req.body.date;
+    const meal = {
+      name: req.body.name || req.body.mealName || "Meal",
+      time: req.body.time,
+      foods: Array.isArray(req.body.foods)
+        ? req.body.foods.map((f: any) => ({
+            name: f.name || f.foodName || "Food",
+            calories: Number(f.calories ?? 0),
+            protein: Number(f.protein ?? 0),
+            carbs: Number(f.carbs ?? 0),
+            fats: Number(f.fats ?? 0),
+            fiber: Number(f.fiber ?? 0),
+            quantity: Number(f.quantity ?? 1),
+            unit: f.unit || "serving",
+            customFoodId: f.customFoodId,
+          }))
+        : [],
+      notes: req.body.notes,
+    };
 
     if (!userId) {
       res.status(401).json({ success: false, message: "Authentication required" });

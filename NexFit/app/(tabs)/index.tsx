@@ -24,6 +24,7 @@ import {
   completeExercise,
   completeSession,
 } from "../../services/workoutSessionApi";
+import { BannerAd } from "../../components/ads/BannerAd";
 import {
   getLocalDateString,
   formatDisplayDate,
@@ -1067,6 +1068,8 @@ export default function HomeScreen() {
             <Text style={styles.syncButtonText}>↻ SYNC DASHBOARD</Text>
           </TouchableOpacity>
         </View>
+
+        <BannerAd />
 
         <Text style={styles.footer}>
           NEXFIT · BUILD YOUR BEST

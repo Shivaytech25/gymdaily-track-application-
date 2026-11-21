@@ -28,6 +28,7 @@ import {
 import { fetchWorkoutHistory, WorkoutHistorySession } from "../../services/workoutHistoryApi";
 import { fetchNutritionHistory } from "../../services/nutritionApi";
 import { formatDisplayDate, getLocalDateString } from "../../utils/dateUtils";
+import { BannerAd } from "../../components/ads/BannerAd";
 
 type TabMode = "activity" | "workouts" | "nutrition" | "monthly";
 
@@ -708,6 +709,8 @@ export default function HistoryScreen() {
             </View>
           </View>
         )}
+
+        <BannerAd />
 
         <View style={{ height: 40 }} />
       </ScrollView>

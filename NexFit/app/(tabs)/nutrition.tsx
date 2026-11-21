@@ -28,6 +28,7 @@ import {
   updateCustomFood,
   updateNutritionTargets,
 } from "../../services/nutritionApi";
+import { BannerAd } from "../../components/ads/BannerAd";
 
 const PRESET_MEALS = ["Breakfast", "Lunch", "Dinner", "Snacks"];
 const WATER_GOAL_ML = 2500;
@@ -1173,6 +1174,8 @@ export default function NutritionScreen() {
             </View>
           </>
         )}
+
+        <BannerAd />
 
         <Text style={styles.footer}>NEXFIT · EAT SMARTER</Text>
       </ScrollView>
